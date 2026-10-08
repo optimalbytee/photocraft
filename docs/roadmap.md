@@ -82,6 +82,40 @@ Confidence: moderate — the next users of 0.2.x will move these numbers either 
 | Platforms | macOS (notarized), Windows, Linux (AppImage/deb/rpm/Flatpak bundle), web | medium-high | Flathub later (#173); Windows signing material pending. |
 | Localisation | 2026-10-07: 10 UI languages; menu, `tl!`, blend mode, preference and brush-section coverage enforced by tests; live switching and scoped Preferences previews | medium | Engine errors/status messages still partly English; CJK web fonts, browser-locale detection, and RTL remain open. |
 
+2026-10-08: Motion Blur reuses sampling geometry across output rows and columns while preserving
+the existing interpolation, alpha handling and sample order. On a synthetic 6000×4000 RGBA8 image
+at 30°, the release tiled filter took 14.70 → 1.88 s at distance 10 (7.83×) and 65.99 → 7.11 s
+at distance 50 (9.28×), with byte-identical outputs (Intel i7-9750H, 12 Rayon workers, median of
+three alternating runs). Reproduce with the ignored `motion_performance` algorithm test. Timings
+include halo reads and output writes, excluding UI proxy creation, compositing and upload;
+the filter preview still runs synchronously.
+
+2026-10-08: Wide Motion Blur uses bounded, parallel overlap-save FFT convolution of the
+existing directional bilinear taps, without intermediate image resampling. Against the
+precomputed sampler above, the same 24 MP release pipeline at 30° took 8.80 → 3.22 s at
+distance 64 (2.74×) and 37.17 → 5.50 s at distance 256 (6.76×). On a synthetic 1500×1000
+RGBA8 image, distance 64 took 590 → 167 ms (3.53×), distance 256 took 3200 → 463 ms
+(6.92×), and distance 1000 took 20.88 s → 617 ms (33.86×). A variable-alpha case at 43°,
+distance 256, took 2959 → 335 ms (8.82×). These are medians of three alternating runs
+with the same CPU and 12-worker pool. Full-image comparisons differed by at most one
+8-bit level; the FFT path is numerically close, not bitwise identical. Tests also cover
+16-bit/float models, alpha cutoff, HDR, boundaries, selections and tile seams; very low
+alpha and unsupported inputs retain the sampler. The 24 MP distance-1000/2000 FFT-only
+medians were 11.05/36.84 s, with nine legacy sample checks per run, not full-image comparisons
+or measured speedups. Reproduce with the ignored `motion_fft_performance` algorithm test.
+Timings include halo reads, filtering, writes and pruning, excluding UI work; large kernels
+remain expensive and the preview still executes synchronously. Scratch and pending results
+are scheduled within a 512 MiB budget, separate from stored surface tiles.
+
+2026-10-08: Direct original-before-all-optimizations versus final Motion Blur measurements
+on the same 24 MP RGBA8 pattern at 30°: distance 64 took 73.83 → 2.89 s (25.56×),
+and distance 256 took 295.94 → 4.92 s (60.20×). These are release medians of three
+alternating pairs with 12 Rayon workers on the same Intel i7-9750H. The baseline uses
+the preserved, unchanged original kernel with matching tiled reads, scheduling, writes
+and pruning; the final side calls public `apply_in`. Every full-image comparison differed
+by at most one 8-bit level. Reproduce with the ignored `motion_original_final_performance`
+algorithm test. Timings exclude source construction, output comparison and UI work.
+
 2026-10-07: Camera Raw PSD mapping covers relative custom white balance, Light/Presence,
 parametric and four point curves, HSL, Color Grading, sharpening/noise detail, grain and numeric
 post-crop vignette controls. Two revisions of one supplied Photoshop ACR 18.4 PSD preserve their

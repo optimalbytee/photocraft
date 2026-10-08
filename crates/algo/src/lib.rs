@@ -941,6 +941,9 @@ pub fn apply_tiled_with(
     if let Some(boxes) = blur::box_widths(params) {
         return apply_box_blur(out, surface, area, extent, selection, &boxes, ctl);
     }
+    if let Some(result) = blur::motion_apply::apply(surface, params, area, bounds, selection, extent, tile, ctl) {
+        return result;
+    }
     let fmt = surface.format();
     let ctx = Ctx { bounds, mode: fmt.mode, alpha: fmt.alpha };
     let halo = params.halo();
