@@ -407,6 +407,12 @@ pub fn preview_document(doc: &Document, active: Option<photocraft_doc::LayerId>,
     if let Some(id) = active {
         s.select_layer(id).ok()?;
     }
+    s.execute(command, preview_params(params, k)).ok()?;
+    s.active().map(|d| (*d.doc).clone())
+}
+
+/// Scale the same pixel parameters for synchronous and background previews.
+pub(crate) fn preview_params(params: &Value, k: u32) -> Value {
     let mut p = params.clone();
     if k > 1
         && let Some(o) = p.as_object_mut()
@@ -419,8 +425,7 @@ pub fn preview_document(doc: &Document, active: Option<photocraft_doc::LayerId>,
             }
         }
     }
-    s.execute(command, p).ok()?;
-    s.active().map(|d| (*d.doc).clone())
+    p
 }
 
 /// Cached preview state on the app.

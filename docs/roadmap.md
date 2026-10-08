@@ -47,6 +47,21 @@ almost entirely missing or partial.
 of display and canvas zoom (#532). The current preference audit drops from 59 to 58 unread
 settings out of 135; see the regenerated scorecard.
 
+2026-10-09: Radial Blur at Good quality now prefers bounded dense polar integration, falling
+back to an optimized direct sampler for unsupported samples, geometry or resource limits.
+Draft and Best retain upstream's discrete 64/4096 interval ceilings; the Good fallback uses 256. Native previews schedule
+cancellable background work. Supplied handoff measurements on a Ryzen 7 9700X / Windows MSVC
+release build, using the earlier 64-interval baseline, show that the same
+synthetic 24 MP RGBA8 image at amount 100 takes Spin from 14.816 s legacy / 3.281 s direct to
+1.047 s default, and Zoom from 14.274 s legacy / 2.263 s direct to 1.683 s default. Default times
+are three-run medians; legacy/direct are one run each. These are historical handoff figures,
+not measurements against current upstream quality settings or this integration host.
+Dense integration intentionally differs
+from the old sparse kernel and better matches independent dense synthetic references; the direct
+fallback retains the selected upstream sample geometry. These measurements are separate from scorecard
+budgets and do not establish Photoshop filter fidelity. Default/fallback/cancellation, depth,
+selection and tile-independence regressions pass.
+
 **Bottom line.** Two days after 0.2.0 we had merged ~96 PRs and closed ~48 issues, but **real
 Photoshop parity is still well below 50%**. The biggest gaps are AI, missing tools, professional
 workflow depth and the plug-in ecosystem. Most fixes since 0.2.0 have passed our tests but have

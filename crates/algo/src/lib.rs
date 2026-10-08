@@ -911,7 +911,8 @@ pub fn apply_in(surface: &Surface, params: &FilterParams, area: Rect, bounds: Re
 }
 
 /// [`apply_in`] that can be cancelled (checked before each tile) and reports progress per tile
-/// group. `None` when `ctl` was cancelled; the input surface is never modified.
+/// group. `None` when cancelled, or when Radial Blur declines invalid input or its source/output
+/// allocation budget. The input surface is never modified.
 pub fn apply_in_with(
     surface: &Surface,
     params: &FilterParams,
@@ -922,6 +923,57 @@ pub fn apply_in_with(
     ctl: &photocraft_raster::Interrupt,
 ) -> Option<Surface> {
     apply_tiled_with(surface, params, area.intersect(&extent), bounds, selection, auto_tile(params, bounds), Some(extent), ctl)
+}
+
+/// Dense Radial Blur using bounded polar strips and line integrals.
+///
+/// This computes a continuous arc/ray approximation rather than a discrete sample ceiling.
+/// This explicit API uses the fixed polar pitch regardless of the requested quality.
+/// It is the preferred backend for Good quality in [`apply_in_with`] and the engine command; this entry point
+/// allows callers to request it without the automatic direct-sampler fallback.
+/// The source colour model, depth, transparent edge policy and selection mixing are preserved.
+/// Returns `None` for cancellation, other filters, unsupported samples or a geometry that exceeds
+/// the backend's memory/work budget. Callers may then use [`apply_in_with`].
+#[allow(clippy::too_many_arguments)]
+pub fn apply_radial_polar_with(
+    surface: &Surface,
+    params: &FilterParams,
+    area: Rect,
+    bounds: Rect,
+    selection: Option<&Surface>,
+    extent: Rect,
+    ctl: &photocraft_raster::Interrupt,
+) -> Option<Surface> {
+    let FilterParams::RadialBlur { amount, method, center_x, center_y, .. } = params else { return None };
+    let area = area.intersect(&extent);
+    if ctl.cancelled() {
+        return None;
+    }
+    if area.is_empty() {
+        return Some(surface.clone());
+    }
+    let rect = bounds.union(&area);
+    // Bound the normalized source read before allocating it. The polar plan applies the tighter
+    // combined source/output/scratch budget after validating geometry and samples.
+    let samples = (rect.width() as usize).checked_mul(rect.height() as usize)?.checked_mul(surface.channels())?;
+    if samples > 256 * 1024 * 1024 || !amount.is_finite() || !center_x.is_finite() || !center_y.is_finite() {
+        return None;
+    }
+    let source = read_radial_source(surface, rect)?;
+    let format = surface.format();
+    let ctx = Ctx { bounds, mode: format.mode, alpha: format.alpha };
+    let mut data = blur::radial_polar::filter(&source, area, &ctx, *amount, *method, (*center_x, *center_y), ctl)?;
+    if let Some(selection) = selection {
+        mix_selection(&mut data, area, selection, &source);
+    }
+    if ctl.cancelled() {
+        return None;
+    }
+    let mut output = surface.clone();
+    output.write_region(area, &data);
+    output.prune();
+    ctl.progress(1.0);
+    Some(output)
 }
 
 /// Results do not depend on the tiling, so wide-halo filters use bigger tiles to keep the
@@ -943,12 +995,13 @@ pub fn apply_tiled(
     tile: i32,
     extent: Option<Rect>,
 ) -> Surface {
-    // Never cancelled, so always `Some`; the fallback (the input unchanged) is unreachable.
+    // Fall back to the original if the fallible kernel declines invalid input or allocation.
     apply_tiled_with(surface, params, area, bounds, selection, tile, extent, &photocraft_raster::Interrupt::NONE).unwrap_or_else(|| surface.clone())
 }
 
 /// [`apply_tiled`] with cancellation (checked before each tile, so a cancel takes effect within
-/// one tile's work) and progress (after each group of tiles). `None` when cancelled.
+/// one tile's work) and progress (after each group of tiles). Radial Blur also checks within each
+/// tile. `None` when cancelled or when Radial Blur declines invalid input/allocation.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_tiled_with(
     surface: &Surface,
@@ -960,6 +1013,70 @@ pub fn apply_tiled_with(
     extent: Option<Rect>,
     ctl: &photocraft_raster::Interrupt,
 ) -> Option<Surface> {
+    if let FilterParams::RadialBlur { amount, center_x, center_y, .. } = params
+        && (!amount.is_finite() || !center_x.is_finite() || !center_y.is_finite())
+    {
+        return None;
+    }
+    if matches!(params, FilterParams::RadialBlur { quality: RadialQuality::Good, .. }) {
+        // Good (the default) selects dense polar integration. Draft and Best retain their
+        // upstream discrete sampling ceilings via the optimized direct backend.
+        // Global radial sampling reads bounds.union(area); callers such as apply_in_with
+        // already clip area to the layer extent. Preserve explicit apply_tiled area semantics.
+        if let Some(output) = apply_radial_polar_with(surface, params, area, bounds, selection, area, ctl) {
+            return Some(output);
+        }
+        // A cancelled polar job must not start another backend.
+        if ctl.cancelled() {
+            return None;
+        }
+    }
+    apply_tiled_direct_with(surface, params, area, bounds, selection, tile, extent, ctl)
+}
+
+/// Optimized Cartesian fallback, also available to test-only baseline comparisons.
+#[allow(clippy::too_many_arguments)]
+fn apply_tiled_direct_with(
+    surface: &Surface,
+    params: &FilterParams,
+    area: Rect,
+    bounds: Rect,
+    selection: Option<&Surface>,
+    tile: i32,
+    extent: Option<Rect>,
+    ctl: &photocraft_raster::Interrupt,
+) -> Option<Surface> {
+    // Sample transforms belong to the operation, not each pixel or output tile.
+    let radial = match params {
+        FilterParams::RadialBlur { amount, method, quality, center_x, center_y } => {
+            Some(blur::radial::Plan::with_quality(bounds, *amount, *method, *quality, (*center_x, *center_y), ctl)?)
+        }
+        _ => None,
+    };
+    let run_kernel = |p: &FilterParams, src: &Image, rect: Rect, ctx: &Ctx| {
+        radial.as_ref().map_or_else(|| Some(kernel(p, src, rect, ctx)), |plan| plan.filter(src, rect, ctx, ctl))
+    };
+    apply_tiled_with_kernel(surface, params, area, bounds, selection, tile, extent, ctl, &run_kernel)
+}
+
+type FilterKernel<'a> = dyn Fn(&FilterParams, &Image, Rect, &Ctx) -> Option<Vec<f32>> + Sync + 'a;
+
+/// Shares source reads, selection mixing and writes between production and reference kernels.
+#[allow(clippy::too_many_arguments)]
+fn apply_tiled_with_kernel(
+    surface: &Surface,
+    params: &FilterParams,
+    area: Rect,
+    bounds: Rect,
+    selection: Option<&Surface>,
+    tile: i32,
+    extent: Option<Rect>,
+    ctl: &photocraft_raster::Interrupt,
+    run_kernel: &FilterKernel<'_>,
+) -> Option<Surface> {
+    if ctl.cancelled() {
+        return None;
+    }
     let mut out = surface.clone();
     if area.is_empty() {
         return Some(out);
@@ -970,7 +1087,12 @@ pub fn apply_tiled_with(
     let fmt = surface.format();
     let ctx = Ctx { bounds, mode: fmt.mode, alpha: fmt.alpha };
     let halo = params.halo_for(bounds);
-    let shared = (halo == Halo::Bounds).then(|| Image::read(surface, bounds.union(&area)));
+    let shared = if halo == Halo::Bounds {
+        let rect = bounds.union(&area);
+        Some(if matches!(params, FilterParams::RadialBlur { .. }) { read_radial_source(surface, rect)? } else { Image::read(surface, rect) })
+    } else {
+        None
+    };
     let mut tiles = Vec::new();
     let mut y = area.y0;
     while y < area.y1 {
@@ -984,10 +1106,10 @@ pub fn apply_tiled_with(
     // Tiles finished so far, for progress reported per tile (from any worker thread).
     let finished = std::sync::atomic::AtomicUsize::new(0);
     let total = tiles.len().max(1);
-    let run = |t: &Rect| -> (Rect, Vec<f32>) {
+    let run = |t: &Rect| -> Option<(Rect, Vec<f32>)> {
         // Cancelled: skip the remaining tiles of the group (the result is discarded).
         if ctl.cancelled() {
-            return (*t, Vec::new());
+            return None;
         }
         let tick = || {
             let n = finished.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -1010,12 +1132,12 @@ pub fn apply_tiled_with(
                 &owned
             }
         };
-        let mut data = kernel(params, src, *t, &ctx);
+        let mut data = run_kernel(params, src, *t, &ctx)?;
         if let Some(sel) = selection {
             mix_selection(&mut data, *t, sel, src);
         }
         tick();
-        (*t, data)
+        Some((*t, data))
     };
     // Tiles are filtered in groups of about RESULT_BUDGET bytes (at least one per core) and each
     // group is written before the next starts, so a huge layer never holds all its results as
@@ -1033,10 +1155,10 @@ pub fn apply_tiled_with(
         #[cfg(not(target_arch = "wasm32"))]
         let results: Vec<(Rect, Vec<f32>)> = {
             use rayon::prelude::*;
-            chunk.par_iter().map(run).collect()
+            chunk.par_iter().map(run).collect::<Option<Vec<_>>>()?
         };
         #[cfg(target_arch = "wasm32")]
-        let results: Vec<(Rect, Vec<f32>)> = chunk.iter().map(run).collect();
+        let results: Vec<(Rect, Vec<f32>)> = chunk.iter().map(run).collect::<Option<Vec<_>>>()?;
         if ctl.cancelled() {
             return None;
         }
@@ -1047,6 +1169,56 @@ pub fn apply_tiled_with(
     out.prune();
     ctl.progress(1.0);
     Some(out)
+}
+
+/// Radial kernels share one normalized source. Check its budget and reserve fallibly before
+/// asking Surface to fill it, so oversized public calls fail before the full source allocation.
+fn read_radial_source(surface: &Surface, rect: Rect) -> Option<Image> {
+    let ch = surface.channels();
+    let len = (rect.width() as usize).checked_mul(rect.height() as usize)?.checked_mul(ch)?;
+    if ch == 0 || len > 256 * 1024 * 1024 {
+        return None;
+    }
+    let mut data = Vec::new();
+    data.try_reserve_exact(len).ok()?;
+    surface.read_region_into(rect, &mut data);
+    Some(Image { rect, ch, data })
+}
+
+/// Optimized direct sampler through the same pipeline, bypassing the polar default for tests.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_radial_direct(
+    surface: &Surface,
+    params: &FilterParams,
+    area: Rect,
+    bounds: Rect,
+    selection: Option<&Surface>,
+    extent: Rect,
+    ctl: &photocraft_raster::Interrupt,
+) -> Option<Surface> {
+    apply_tiled_direct_with(surface, params, area.intersect(&extent), bounds, selection, auto_tile(params, bounds), Some(extent), ctl)
+}
+
+/// Original radial sampler through the same application pipeline, for paired quality/timing.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_radial_reference(
+    surface: &Surface,
+    params: &FilterParams,
+    area: Rect,
+    bounds: Rect,
+    selection: Option<&Surface>,
+    extent: Rect,
+    ctl: &photocraft_raster::Interrupt,
+) -> Option<Surface> {
+    let reference = |p: &FilterParams, src: &Image, rect: Rect, ctx: &Ctx| match p {
+        FilterParams::RadialBlur { amount, method, center_x, center_y, .. } => {
+            Some(blur::radial::reference(src, rect, ctx, *amount, *method, (*center_x, *center_y)))
+        }
+        _ => Some(kernel(p, src, rect, ctx)),
+    };
+    apply_tiled_with_kernel(surface, params, area.intersect(&extent), bounds, selection, auto_tile(params, bounds), Some(extent), ctl, &reference)
 }
 
 /// [`apply_tiled_with`] for the blurs run as box passes ([`blur::box_widths`]): the whole area at
@@ -1140,3 +1312,6 @@ mod tests_ext;
 
 #[cfg(test)]
 mod tests_mosaic;
+
+#[cfg(test)]
+mod tests_radial;

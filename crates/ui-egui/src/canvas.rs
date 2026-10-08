@@ -981,7 +981,7 @@ fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: 
 }
 
 /// Live preview for an open filter dialog: run the filter on the proxy and upload it.
-fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u64)> {
+fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &egui::Context) -> Option<(u32, u64)> {
     if crate::adjust_preview::on_layer(app, idx) {
         return None;
     }
@@ -990,6 +990,28 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
         return None;
     }
     let cmd = d.fields.get("__command")?.as_str()?.to_string();
+    if cmd == crate::radial_preview::COMMAND {
+        let frame = crate::radial_preview::update(app, idx, ctx)?;
+        let doc = app.session.documents().get(idx)?.doc.clone();
+        let key = frame.doc.0 ^ (1u64 << 61);
+        let (display, display_key) = canvas_display(app, &doc, None);
+        let hash = frame.generation ^ display_key;
+        let gpu = app.gpu.as_ref()?;
+        let fresh = app.filter_preview.as_ref().is_some_and(|preview| {
+            preview.doc == frame.doc
+                && preview.hash == hash
+                && preview.result.as_ref().is_some_and(|result| std::sync::Arc::ptr_eq(result, &frame.result))
+                && gpu.has(key, [frame.result.size.width, frame.result.size.height])
+        });
+        if !fresh {
+            let started = crate::gpu_canvas::now_ms();
+            gpu.upload_buffer_full(key, &texture_buffer(display.as_deref(), &frame.buffer), doc.depth);
+            app.perf.record("filter-preview", frame.result.size.area(), frame.compute_ms, crate::gpu_canvas::now_ms() - started);
+            app.filter_preview =
+                Some(crate::filter_dialog::FilterPreview { doc: frame.doc, revision: frame.revision, hash, k: frame.k, result: Some(frame.result) });
+        }
+        return Some((frame.k, key));
+    }
     // Previews edit what the command will: a targeted layer mask included (#780).
     let params = app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields));
     let (doc_id, revision, doc, active) = {
@@ -1815,13 +1837,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // Live adjustment previews on big documents use a downsampled proxy (see proxy.rs), unless
     // Preferences › Performance › Low Resolution Previews is off.
     let mut on_gpu = false;
+    let mut radial_overlay = None;
     // A flipped view draws through the CPU path (the GPU canvas shader has no mirroring).
     if app.gpu.is_some()
         && !flip
         && let Some((k, key)) = ensure_adjust_proxy(app, idx, view.zoom * ctx.pixels_per_point())
-            .or_else(|| ensure_filter_preview(app, idx))
+            .or_else(|| ensure_filter_preview(app, idx, &ctx))
             .or_else(|| ensure_proxy_preview(app, idx))
     {
+        radial_overlay = crate::radial_preview::overlay(app, &ctx, idx, key);
         on_gpu = true;
         let params = crate::gpu_canvas::ViewParams {
             doc: key,
@@ -1879,7 +1903,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
     }
     // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
-    if let Some(tex) = crate::channel_view::ensure(app, &ctx, idx) {
+    let channel_overlay = match radial_overlay {
+        Some(overlay) => overlay,
+        None => crate::channel_view::ensure(app, &ctx, idx),
+    };
+    if let Some(tex) = channel_overlay {
         let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
         painter.image(tex, img_rect, uv, Color32::WHITE);
     }

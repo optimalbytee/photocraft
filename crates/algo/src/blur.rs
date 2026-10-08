@@ -3,9 +3,14 @@
 use photocraft_geom::Rect;
 use photocraft_raster::Interrupt;
 
-use crate::image::{Edge, Image, premultiply, unpremultiply};
+#[cfg(test)]
+use crate::image::Edge;
+use crate::image::{Image, premultiply, unpremultiply};
 use crate::photo_util::{par_map, par_rows};
 use crate::{Ctx, FilterParams, RadialMethod, RadialQuality};
+
+pub(crate) mod radial;
+pub(crate) mod radial_polar;
 
 /// Normalized Gaussian kernel with standard deviation `sigma` (radius 3σ).
 pub(crate) fn gaussian_kernel(sigma: f32) -> Vec<f32> {
@@ -310,6 +315,7 @@ pub(crate) fn boxed(src: &Image, out: Rect, ctx: &Ctx, radius: f32) -> Vec<f32> 
     }
 }
 
+#[cfg(test)]
 fn average_samples(src: &Image, out: Rect, ctx: &Ctx, offsets: impl Fn(f32, f32, &mut Vec<(f32, f32)>) + Sync) -> Vec<f32> {
     let n = src.ch;
     let (ow, oh) = (out.width() as usize, out.height() as usize);
@@ -454,34 +460,9 @@ fn radial_intervals(path_length: f32, quality: RadialQuality) -> usize {
 }
 
 pub(crate) fn radial(src: &Image, out: Rect, ctx: &Ctx, amount: f32, method: RadialMethod, quality: RadialQuality, center: (f32, f32)) -> Vec<f32> {
-    let b = ctx.bounds;
-    let (cx, cy) = (b.x0 as f32 + b.width() as f32 * center.0, b.y0 as f32 + b.height() as f32 * center.1);
-    let amount = amount.clamp(0.0, 100.0);
-    average_samples(src, out, ctx, |x, y, pts| {
-        let (dx, dy) = (x - cx, y - cy);
-        let r = (dx * dx + dy * dy).sqrt();
-        match method {
-            RadialMethod::Spin => {
-                // Arc of `amount` degrees centred on the pixel.
-                let arc = amount.to_radians();
-                let n = radial_intervals(arc * r, quality);
-                for i in 0..=n {
-                    let t = (i as f32 / n as f32 - 0.5) * arc;
-                    let (s, c) = t.sin_cos();
-                    pts.push((cx + dx * c - dy * s, cy + dx * s + dy * c));
-                }
-            }
-            RadialMethod::Zoom => {
-                // Samples along the ray, up to amount/2 % closer to the centre.
-                let span = amount / 200.0;
-                let n = radial_intervals(span * r, quality);
-                for i in 0..=n {
-                    let k = 1.0 - span * i as f32 / n as f32;
-                    pts.push((cx + dx * k, cy + dy * k));
-                }
-            }
-        }
-    })
+    radial::Plan::with_quality(ctx.bounds, amount, method, quality, center, &Interrupt::NONE)
+        .and_then(|plan| plan.filter(src, out, ctx, &Interrupt::NONE))
+        .unwrap_or_default()
 }
 
 /// [`surface`] for 8-bit samples (every colour sample in the window is `k / 255`; `None`
