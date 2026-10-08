@@ -5,6 +5,8 @@ use photocraft_geom::Rect;
 use crate::image::Image;
 use crate::{Ctx, Distribution};
 
+mod median_histogram;
+
 /// Deterministic hash → `[0, 1)` from document coordinates, so results do not
 /// depend on tiling.
 #[inline]
@@ -52,6 +54,22 @@ pub(crate) fn add(src: &Image, out: Rect, ctx: &Ctx, amount: f32, dist: Distribu
 /// Median over a disc of `radius`; with `threshold`, a pixel is replaced only
 /// when it differs from the median by more than `threshold` levels.
 pub(crate) fn median(src: &Image, out: Rect, radius: f32, threshold: Option<f32>) -> Vec<f32> {
+    if out.is_empty() {
+        return Vec::new();
+    }
+    let r = radius.max(0.0).round() as i32;
+    if r == 0 {
+        return src.crop(out);
+    }
+    // The engine accepts radii up to 500. Only take the histogram path when every
+    // sample is exactly representable; arbitrary 16-bit/float values retain total_cmp.
+    if let Some(res) = median_histogram::filter(src, out, r, threshold) {
+        return res;
+    }
+    median_direct(src, out, radius, threshold)
+}
+
+fn median_direct(src: &Image, out: Rect, radius: f32, threshold: Option<f32>) -> Vec<f32> {
     let n = src.ch;
     let r = radius.max(0.0).round() as i32;
     if r == 0 {
