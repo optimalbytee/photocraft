@@ -650,8 +650,10 @@ mod tests {
             .surface()
             .unwrap()
             .read_region(doc.bounds())
-            .chunks_exact(4)
-            .zip(actual.result.layers[0].surface().unwrap().read_region(doc.bounds()).chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(actual.result.layers[0].surface().unwrap().read_region(doc.bounds()).as_chunks::<4>().0.iter())
         {
             assert_eq!(&before[1..], &after[1..]);
         }

@@ -143,7 +143,7 @@ fn constant_hdr_cmyka_alpha_and_axis_seams() {
     let rect = Rect::new(-80, -80, 80, 80);
     let out = Rect::new(-17, -17, 18, 18);
     let mut src = Image::new(rect, 5);
-    for pixel in src.data.chunks_exact_mut(5) {
+    for pixel in src.data.as_chunks_mut::<5>().0 {
         pixel.copy_from_slice(&[-0.5, 2.0, 4.0, 0.7, 0.37]);
     }
     // Centre is exactly a pixel centre, covering both zero radius and horizontal axis ownership.
@@ -151,7 +151,7 @@ fn constant_hdr_cmyka_alpha_and_axis_seams() {
     let center = (0.5, 0.5);
     for method in [RadialMethod::Spin, RadialMethod::Zoom] {
         let got = filter(&src, out, &ctx, 100.0, method, center, &Interrupt::NONE).expect("constant bounded image");
-        for (i, pixel) in got.chunks_exact(5).enumerate() {
+        for (i, pixel) in got.as_chunks::<5>().0.iter().enumerate() {
             for (c, (value, want)) in pixel.iter().zip([-0.5, 2.0, 4.0, 0.7, 0.37]).enumerate() {
                 assert!((value - want).abs() < 2e-6, "{method:?}: pixel {i}, channel {c}: {value} != {want}");
             }
@@ -369,7 +369,7 @@ fn write_ppm(path: &std::path::Path, values: &[f32], width: usize, height: usize
     // Composite every result by the same alpha over a neutral checkerboard. Pixels outside the
     // source remain transparent; the display makes the edge/alpha effect visible consistently.
     let mut ppm = format!("P6\n{width} {height}\n255\n").into_bytes();
-    for (i, pixel) in values.chunks_exact(4).enumerate() {
+    for (i, pixel) in values.as_chunks::<4>().0.iter().enumerate() {
         let (x, y) = (i % width, i / width);
         let background = if ((x / 16) + (y / 16)).is_multiple_of(2) { 0.35 } else { 0.55 };
         let alpha = pixel[3].clamp(0.0, 1.0);
