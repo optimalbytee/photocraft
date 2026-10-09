@@ -938,10 +938,7 @@ impl PhotocraftApp {
             p => std::path::Path::new(p.as_deref().unwrap_or(&st.doc.name)).with_extension("psd").to_string_lossy().into_owned(),
         };
         let doc = st.doc.id;
-        self.pick_save(&suggested, move |app, path| {
-            app.refocus(doc)?;
-            app.save_to(path)
-        })
+        self.pick_save(&suggested, move |app, path| app.with_document(doc, |app| app.save_to(path)))
     }
 
     /// [`Self::save_as`] once the path is known.
@@ -966,8 +963,7 @@ impl PhotocraftApp {
         let write = self.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
         if !copy && let Some(st) = self.session.active_mut() {
-            st.path = Some(path.clone());
-            st.saved_revision = st.revision;
+            st.saved_to(path.clone());
         }
         self.ui.status = format!("Saved {path}");
         // "Save Document" script events and File › Generate › Image Assets.
@@ -997,8 +993,7 @@ impl PhotocraftApp {
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
         write(&target, &bytes)?;
         if let Some(state) = self.session.active_mut() {
-            state.path = Some(target.clone());
-            state.saved_revision = state.revision;
+            state.saved_to(target.clone());
         }
         self.ui.status = format!("Saved {target}");
         self.ui.status_error = false;
@@ -1697,6 +1692,9 @@ mod pencil_tests;
 
 #[cfg(test)]
 mod transform_undo_tests;
+
+#[cfg(test)]
+mod save_identity_tests;
 
 #[cfg(test)]
 mod move_auto_select_tests;

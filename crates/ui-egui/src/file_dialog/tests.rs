@@ -96,6 +96,7 @@ fn the_app_keeps_running_while_a_dialog_is_open() {
     assert_eq!(*written.borrow(), ["/pics/a.psd"]);
     let st = app.session.active().unwrap();
     assert_eq!(st.path.as_deref(), Some("/pics/a.psd"));
+    assert_eq!(st.doc.name, "a.psd", "a successful Save As adopts the file name");
     assert!(!st.is_dirty());
     assert!(!app.file_dialog_open());
 }
@@ -178,8 +179,11 @@ fn the_answer_goes_to_the_document_it_was_asked_for() {
     app.poll_file_dialog(&ctx, None);
     let paths: Vec<_> = app.session.documents().iter().map(|d| d.path.clone()).collect();
     assert_eq!(paths, [Some("/pics/first.psd".to_string()), None]);
-    assert_eq!(app.session.active_index(), Some(0));
+    assert_eq!(app.session.active_index(), Some(1), "a completed save preserves the selected tab");
+    assert_eq!(app.session.documents()[0].doc.name, "first.psd");
+    assert_ne!(app.session.documents()[1].doc.name, "first.psd");
     // Once that document is closed, the answer has nothing to save.
+    app.session.set_active(0);
     menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
     app.poll_file_dialog(&ctx, None);
     app.run("file.close", json!({"document": 0})).unwrap();
@@ -193,6 +197,8 @@ fn the_answer_goes_to_the_document_it_was_asked_for() {
 fn cancel_and_a_dialog_that_could_not_show_end_quietly() {
     let (mut app, open, written) = app();
     let ctx = egui::Context::default();
+    app.run("layer.new.layer", json!({})).unwrap();
+    let before = app.session.active().unwrap().clone();
     menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
     app.poll_file_dialog(&ctx, None);
     answer(&open, None);
@@ -205,10 +211,53 @@ fn cancel_and_a_dialog_that_could_not_show_end_quietly() {
     app.poll_file_dialog(&ctx, None);
     assert!(!app.file_dialog_open() && !app.ui.status_error);
     assert!(written.borrow().is_empty());
+    let after = app.session.active().unwrap();
+    assert_eq!(after.doc.name, before.doc.name);
+    assert_eq!(after.path, before.path);
+    assert_eq!((after.revision, after.saved_revision), (before.revision, before.saved_revision));
     // Without a dialog service, asking is a Cancel straight away.
     app.services.file_dialog = None;
     assert_eq!(app.open_dialog_file().unwrap_err(), CANCELLED);
     assert!(!app.file_dialog_open());
+}
+
+#[test]
+fn opening_another_document_before_the_save_answer_keeps_its_identity() {
+    let (mut app, open, written) = app();
+    let ctx = egui::Context::default();
+    let first_id = app.active_doc_id().unwrap();
+    app.save_as(None).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    app.run("file.new", json!({"width": 4, "height": 4, "name": "Untitled-2"})).unwrap();
+    let second_id = app.active_doc_id().unwrap();
+    app.run("document.move", json!({"document": 0, "to": 1})).unwrap();
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/保存 first.psd".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(*written.borrow(), ["/pics/保存 first.psd"]);
+    let first = app.session.documents().iter().find(|s| s.doc.id == first_id).unwrap();
+    assert_eq!(first.doc.name, "保存 first.psd");
+    assert_eq!(first.path.as_deref(), Some("/pics/保存 first.psd"));
+    assert_eq!(app.active_doc_id().unwrap(), second_id);
+    assert_eq!(app.session.active().unwrap().doc.name, "Untitled-2");
+}
+
+#[test]
+fn failed_deferred_save_preserves_both_identities_and_the_selected_tab() {
+    let (mut app, open, written) = app();
+    let ctx = egui::Context::default();
+    app.run("layer.new.layer", json!({})).unwrap();
+    app.save_as(None).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    app.run("file.new", json!({"width": 4, "height": 4, "name": "second"})).unwrap();
+    let before: Vec<_> = app.session.documents().iter().map(|d| (d.doc.name.clone(), d.path.clone(), d.revision, d.saved_revision)).collect();
+    app.services.write = Some(Box::new(|_, _| Err("disk full".into())));
+    answer(&open, Some(FileDialogAnswer::SaveTo("failed.psd".into())));
+    app.poll_file_dialog(&ctx, None);
+    let after: Vec<_> = app.session.documents().iter().map(|d| (d.doc.name.clone(), d.path.clone(), d.revision, d.saved_revision)).collect();
+    assert_eq!(after, before);
+    assert_eq!(app.session.active_index(), Some(1));
+    assert!(app.ui.status_error && app.ui.status == "disk full");
+    assert!(written.borrow().is_empty());
 }
 
 #[test]

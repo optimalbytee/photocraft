@@ -71,7 +71,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             app.session.edit_prefs(|prefs| prefs.file_handling.ask_before_saving_layered_tiff = false);
         }
         let settings = ExportSettings { tiff_layers: !p.discard_layers, ..Default::default() };
-        if let Err(e) = app.refocus(p.doc).and_then(|()| app.write_document(p.path, &settings, p.discard_layers)) {
+        if let Err(e) = app.with_document(p.doc, |app| app.write_document(p.path, &settings, p.discard_layers)) {
             app.ui.status = crate::i18n::fmt(tl!("Save failed: {error}"), &[("error", &e)]);
             app.ui.status_error = true;
         } else if !p.discard_layers {
