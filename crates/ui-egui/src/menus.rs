@@ -20,6 +20,7 @@ pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Se
 
 /// UI-level commands (handled by the shell rather than the engine): id, label, menu, shortcut.
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
+    ("ui.symmetryTransform", "Transform Symmetry", &[], None),
     ("file.open", "Open…", &["File"], Some("Cmd+O")),
     ("file.save", "Save", &["File"], Some("Cmd+S")),
     ("file.saveAs", "Save As…", &["File"], Some("Cmd+Shift+S")),
@@ -124,11 +125,23 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
     if crate::discard_ui::intercept(app, id, &params) {
         return Ok(Value::Null);
     }
-    invoke_unguarded(app, ctx, id, params)
+    let r = invoke_unguarded(app, ctx, id, params)?;
+    // The palette's empty-query list (UI-217-7); opening the palette isn't a command to recall.
+    if id != "edit.search" {
+        crate::palette::note_recent(ctx, id);
+    }
+    Ok(r)
 }
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if id == "ui.symmetryTransform" {
+        return crate::symmetry_ui::begin(app).map(|_| Value::Null);
+    }
+    // A pending Pen anchor is gesture state; Edit › Undo must match the keyboard.
+    if id == "edit.undo" && crate::vector_ui::pen_undo_last_point(app) {
+        return Ok(Value::Null);
+    }
     // Help › Discord, website, GitHub, Report an Issue.
     if let Some(url) = crate::links::url_for(id) {
         return Ok(crate::links::open(app, ctx, url));
@@ -338,6 +351,14 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             app.ui.dock_tabs.properties = 0;
             Ok(r)
         }
+        // Edit › Stroke…: open its full options dialog when called from menus/context
+        // menus. Explicit params from Actions, CLI, MCP and control channel execute directly.
+        crate::stroke_ui::COMMAND if params.as_object().is_none_or(|o| o.is_empty()) => {
+            if let Some(Err(why)) = photocraft_engine::commands::find(id).map(|c| (c.enabled)(&app.session)) {
+                return Err(why);
+            }
+            Ok(json!({"dialog": crate::stroke_ui::open(app)}))
+        }
         // Photoshop's "Select and Mask…" is the engine's select.refineEdge.
         // Select › Color Range… from the menu: the dialog (with params: the engine directly).
         "select.colorRange" if params.as_object().is_none_or(|o| o.is_empty()) => Ok(json!({"dialog": crate::color_range_ui::open(app)})),
@@ -484,6 +505,13 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if id == "ui.symmetryTransform" {
+        return crate::symmetry_ui::can_transform(app);
+    }
+    // Draft Pen points can be undone even when the document has no History entries.
+    if id == "edit.undo" && app.ui.pen.as_ref().is_some_and(|pen| !pen.knots.is_empty()) {
+        return true;
+    }
     // Photoshop greys these for the Background layer, other layer kinds or single-layer documents.
     if crate::enable_rules::disabled(app, id) {
         return false;

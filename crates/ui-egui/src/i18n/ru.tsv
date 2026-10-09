@@ -24,6 +24,8 @@
 	Layer	Слой
 	Type	Текст
 	Select	Выделение
+	Selected	Выбранные
+	Scope	Область
 	Top Left	Верхний левый
 	Top Right	Верхний правый
 	Bottom Left	Нижний левый
@@ -2093,6 +2095,9 @@
 	Stroke	Мазок
 	Stroke Catch-up	Догонять мазком
 	Stroke:	Обводка:
+	Location:	Расположение:
+	Inside	Внутри
+	Outside	Снаружи
 	Tetrahedral	Тетраэдрическая
 	Texture Each Tip	Текстура на каждый отпечаток
 	The current gradient (pick one in Window › Gradients)	Текущий градиент (выберите в Окно › Градиенты)
@@ -2520,6 +2525,12 @@ fontWeight	Italic	Курсив
 	Rotate View Tool	Инструмент поворота вида
 	Reset View	Сбросить вид
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Перетащите вокруг центра, чтобы повернуть вид  ·  Shift фиксирует шаг 15°
+
+# Painting symmetry presets.
+	Dual Axis	Две оси
+	Diagonal	Диагональная
+	Transform Symmetry	Трансформировать симметрию
+	Set painting symmetry options	Настроить параметры симметричного рисования
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Точечная выборка

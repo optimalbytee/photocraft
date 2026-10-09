@@ -714,11 +714,12 @@ fn weight_name(w: f32) -> &'static str {
     }
 }
 
-/// Style names ("Regular", "Bold Italic", …) available for a family.
+/// Style names available for a family: each face's actual OpenType subfamily (including numeric
+/// and nonstandard ones), plus the standard weights a variable face's `wght` axis covers.
 pub fn styles(family: &str) -> Vec<String> {
-    let faces = photocraft_text::shared().lock().map(|mut e| e.fonts.faces(family)).unwrap_or_default();
+    let faces = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.faces(family);
     let v = style_names(&faces);
-    if v.is_empty() { vec![tl!("Regular").into()] } else { v }
+    if v.is_empty() { vec!["Regular".into()] } else { v }
 }
 
 /// [`styles`] of these faces, lightest first. A variable face reports only its default instance
@@ -733,15 +734,31 @@ fn style_names(faces: &[photocraft_text::FaceInfo]) -> Vec<String> {
         };
         (weight.round() as i32, italic, name)
     };
-    let mut v: Vec<(i32, bool, String)> = faces.iter().map(|f| label(f.weight, f.italic)).collect();
+    let mut v: Vec<(i32, bool, String)> = faces.iter().map(|f| (f.weight.round() as i32, f.italic, f.style.clone())).collect();
     for f in faces {
         if let Some((_, min, _, max)) = f.axes.iter().find(|a| a.0 == "wght") {
             v.extend((100..=900).step_by(100).map(|w| w as f32).filter(|w| (*min..=*max).contains(w)).map(|w| label(w, f.italic)));
         }
     }
     v.sort();
-    v.dedup_by(|a, b| a.2 == b.2);
-    v.into_iter().map(|x| x.2).collect()
+    let mut names: Vec<String> = Vec::new();
+    for (_, _, name) in v {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+/// PSD text can identify a face only by its PostScript name. Show its real subfamily too.
+pub(crate) fn selected_style(style: &photocraft_doc::text::CharStyle) -> String {
+    if let Some(ps) = &style.postscript_name {
+        let faces = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.faces(&style.font_family);
+        if let Some(face) = faces.into_iter().find(|f| f.postscript_name.as_ref() == Some(ps)) {
+            return face.style;
+        }
+    }
+    if style.font_style.is_empty() { if style.italic { "Italic".into() } else { "Regular".into() } } else { style.font_style.clone() }
 }
 
 /// Localized style label for the dropdown. The raw string stays the engine's `fontStyle` key;
@@ -895,7 +912,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let run = tl.char_runs().into_iter().next().map(|r| r.style);
         // The size at the selection (else the first run), as the layer shows it (#124).
         let size = styles_at(app).map_or(tl.size_pt, |(c, _)| c.size_pt) * shown_scale(app);
-        Some((tl.font_family.clone(), run.as_ref().map(|s| s.font_style.clone()).unwrap_or_default(), size, styles_at(app).map_or(tl.color, |(c, _)| c.color)))
+        Some((tl.font_family.clone(), run.as_ref().map(selected_style).unwrap_or_default(), size, styles_at(app).map_or(tl.color, |(c, _)| c.color)))
     });
     let o = app.ui.tool_options.clone();
     let (mut fam, mut style, mut size) = match &shown {
@@ -1221,7 +1238,7 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
             }
         });
         row(ui, &mut |ui| {
-            let mut style = if c.font_style.is_empty() { "Regular".to_string() } else { c.font_style.clone() };
+            let mut style = selected_style(&c);
             let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
             let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
             if crate::widgets::dropdown(ui, "props-type-style", &mut style, &opts_ref, full) {

@@ -812,6 +812,9 @@ pub struct UiState {
     /// Free Transform session, if any.
     #[serde(default)]
     pub transform: Option<TransformSession>,
+    /// Temporary symmetry-axis editing, exposed to automation but never restored from settings.
+    #[serde(default, skip_deserializing)]
+    pub symmetry_transform: Option<crate::symmetry_ui::Transform>,
     /// Clone Stamp / Healing source point (⌥-click) and the aligned offset once a stroke started.
     #[serde(default)]
     pub clone_source: Option<[f64; 2]>,
@@ -929,6 +932,10 @@ pub struct UiState {
     /// Crop tool rectangle being edited [x0, y0, x1, y1] (document coordinates).
     #[serde(default)]
     pub crop_rect: Option<[f64; 4]>,
+    /// The crop frame's turn in degrees, clockwise on screen about its centre (`crop_rect` is the
+    /// frame before the turn); 0 when upright. Committing passes it as `image.crop`'s `angle`.
+    #[serde(default)]
+    pub crop_angle: f64,
     pub next_id: u64,
     /// Last status message (errors from commands, hints).
     pub status: String,
@@ -962,6 +969,7 @@ impl Default for UiState {
             type_transform: None,
             type_transform_pivot: None,
             transform: None,
+            symmetry_transform: None,
             mask_target: false,
             vector_mask_target: false,
             brush_picker: None,
@@ -1006,6 +1014,7 @@ impl Default for UiState {
             polygon_mode: String::new(),
             magnetic: Default::default(),
             crop_rect: None,
+            crop_angle: 0.0,
             next_id: 1,
             status: String::new(),
             status_error: false,

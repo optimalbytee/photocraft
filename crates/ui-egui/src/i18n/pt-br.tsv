@@ -21,6 +21,8 @@
 	Layer	Camada
 	Type	Tipo
 	Select	Selecionar
+	Selected	Selecionadas
+	Scope	Escopo
 	Top Left	Superior esquerdo
 	Top Right	Superior direito
 	Bottom Left	Inferior esquerdo
@@ -1375,6 +1377,7 @@
 	Stroke	Traçado
 	Stroke Catch-up	Recuperação do traço
 	Stroke:	Traçado:
+	Location:	Local:
 	Style	Estilo
 	Style Options	Opções de estilo
 	Style Options…	Opções de estilo…
@@ -2679,6 +2682,11 @@ fontWeight	Italic	Itálico
 	Rotate View Tool	Ferramenta Girar visualização
 	Reset View	Redefinir visualização
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Arraste ao redor do centro para girar a visualização  ·  Shift restringe a 15°
+
+# Painting symmetry presets.
+	Dual Axis	Eixo duplo
+	Diagonal	Diagonal
+	Transform Symmetry	Transformar simetria
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Amostra pontual

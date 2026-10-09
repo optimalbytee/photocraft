@@ -241,3 +241,28 @@ fn new_guide_layout_does_not_remember_a_failed_command() {
     assert!(crate::dialogs::confirm(&mut app, id).is_err());
     assert_eq!(app.ui.view.guide_layout["columns"], 8);
 }
+
+#[test]
+fn lookup_export_dialog_uses_the_current_adjustment_selection() {
+    let (mut app, _ctx) = app_with(1);
+    app.run("layer.newAdjustmentLayer.invert", json!({})).unwrap();
+    let current = app.session.active().unwrap().active_layer.unwrap();
+    let opened = front(&mut app, "file.export.colorLookupTables", &json!({})).unwrap().unwrap();
+    let id = opened["dialog"].as_u64().unwrap();
+    let dialog = &app.ui.dialogs.last().unwrap().fields;
+    assert_eq!(dialog["scope"], "selected");
+    assert_eq!(dialog["size"], 33);
+    assert_eq!(dialog["__choices"]["scope"], json!(["all", "selected"]));
+    app.ui.close_dialog(id);
+
+    app.run("layer.new.layer", json!({"name": "Unrelated pixels"})).unwrap();
+    let opened = front(&mut app, "file.export.colorLookupTables", &json!({})).unwrap().unwrap();
+    let id = opened["dialog"].as_u64().unwrap();
+    assert_eq!(app.ui.dialogs.last().unwrap().fields["scope"], "all");
+    app.ui.close_dialog(id);
+
+    app.run("layer.select", json!({"layer": current})).unwrap();
+    let direct = app.run("file.export.colorLookupTables", json!({"size": 3, "scope": "selected"})).unwrap();
+    assert_eq!(direct["layerCount"], 1);
+    assert!(direct["cube"].as_str().unwrap().contains("LUT_3D_SIZE 3"));
+}

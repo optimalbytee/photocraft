@@ -8,6 +8,7 @@
 	Layer	Επίπεδο
 	Type	Κείμενο
 	Select	Επιλογή
+	Scope	Εύρος
 	Filter	Φίλτρο
 	View	Προβολή
 	Window	Παράθυρο
@@ -552,6 +553,7 @@
 	Middle	Μέση
 	Position	Θέση
 	Location	Τοποθεσία
+	Location:	Θέση:
 	Offset	Μετατόπιση
 	Distance	Απόσταση
 	Radius	Ακτίνα
@@ -3362,6 +3364,11 @@ fontWeight	Thin	Πολύ λεπτά
 # Saved New Document presets (#1516)
 	Preset Name	Όνομα προεπιλογής
 	No saved presets yet.	Δεν υπάρχουν ακόμη αποθηκευμένες προεπιλογές.
+
+# Painting symmetry presets.
+	Dual Axis	Διπλός άξονας
+	Diagonal	Διαγώνια
+	Transform Symmetry	Μετασχηματισμός συμμετρίας
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Σημειακό δείγμα

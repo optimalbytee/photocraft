@@ -17,6 +17,8 @@
 	Layer	Livello
 	Type	Testo
 	Select	Selezione
+	Selected	Selezionati
+	Scope	Ambito
 	Top Left	In alto a sinistra
 	Top Right	In alto a destra
 	Bottom Left	In basso a sinistra
@@ -1391,6 +1393,8 @@
 	Stroke	Traccia
 	Stroke Catch-up	Recupero traccia
 	Stroke:	Traccia:
+	Location	Posizione
+	Location:	Posizione:
 	Style	Stile
 	Style Options	Opzioni stile
 	Style Options…	Opzioni stile…
@@ -2319,6 +2323,11 @@ fontWeight	Italic	Corsivo
 	Rotate View Tool	Strumento Ruota vista
 	Reset View	Reimposta vista
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Trascina intorno al centro per ruotare la vista  ·  Maiusc vincola a 15°
+
+# Painting symmetry presets.
+	Dual Axis	Doppio asse
+	Diagonal	Diagonale
+	Transform Symmetry	Trasforma simmetria
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Campione puntiforme

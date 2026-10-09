@@ -194,6 +194,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     }
                 }
                 DialogKind::Command if crate::fill_ui::owns(&fields) => crate::fill_ui::body(app, ui, &mut fields),
+                DialogKind::Command if crate::stroke_ui::owns(&fields) => crate::stroke_ui::body(ui, &mut fields),
                 DialogKind::Command if crate::rasterize_prompt::owns(&fields) => crate::rasterize_prompt::body(ui, &fields),
                 DialogKind::Command if crate::variables_ui::owns(&fields) => crate::variables_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::file_ui::owns(&fields) => crate::file_ui::body(app, ui, &mut fields),
@@ -362,9 +363,13 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             if let Some(i) = app.session.active_index() {
                 app.ui.views[i].fit_pending = true;
             }
+            if r.is_ok() {
+                crate::remember_new_document(app, &d.fields);
+            }
             r
         }
         DialogKind::Command if crate::fill_ui::owns(&d.fields) => crate::fill_ui::confirm(app, &d.fields),
+        DialogKind::Command if crate::stroke_ui::owns(&d.fields) => crate::stroke_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::rasterize_prompt::owns(&d.fields) => crate::rasterize_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::variables_ui::owns(&d.fields) => crate::variables_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::file_ui::owns(&d.fields) => crate::file_ui::confirm(app, &d.fields),
@@ -403,6 +408,9 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
 /// schema dialog for filters, the Color Range dialog for `select.colorRange`, otherwise a bare
 /// confirm dialog.
 pub fn open_command_dialog(app: &mut PhotocraftApp, command: &str, label: &str) -> u64 {
+    if command == crate::stroke_ui::COMMAND {
+        return crate::stroke_ui::open(app);
+    }
     if command == crate::color_range_ui::COMMAND {
         return crate::color_range_ui::open(app);
     }

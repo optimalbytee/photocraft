@@ -15,6 +15,8 @@
 	Layer	Шар
 	Type	Текст
 	Select	Виділення
+	Selected	Вибрані
+	Scope	Область
 	Top Left	Зверху ліворуч
 	Top Right	Зверху праворуч
 	Bottom Left	Знизу ліворуч
@@ -1246,6 +1248,7 @@
 	Date Created	Дата створення
 	City	Місто
 	Location	Розташування
+	Location:	Розташування:
 	Province / State	Область / штат
 	Country	Країна
 	Byline	Ім'я автора
@@ -3379,3 +3382,8 @@ cameraRaw	Masking	Маскування
 	Point Sample	Точкова вибірка
 	Sample Size:	Розмір зразка:
 	Show Sampling Ring	Показувати кільце вибірки
+
+# Painting symmetry presets.
+	Dual Axis	Подвійна вісь
+	Diagonal	Діагональна
+	Transform Symmetry	Трансформувати симетрію

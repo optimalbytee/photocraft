@@ -17,6 +17,8 @@
 	Layer	Layer
 	Type	Teks
 	Select	Seleksi
+	Selected	Terpilih
+	Scope	Cakupan
 	Top Left	Kiri atas
 	Top Right	Kanan atas
 	Bottom Left	Kiri bawah
@@ -1370,6 +1372,7 @@
 	Stroke	Stroke
 	Stroke Catch-up	Stroke Catch-up
 	Stroke:	Stroke:
+	Location:	Lokasi:
 	Style	Gaya
 	Style Options	Opsi Gaya
 	Style Options…	Opsi Gaya…
@@ -2659,6 +2662,11 @@ fontWeight	Italic	Miring
 	Rotate View Tool	Alat Putar Tampilan
 	Reset View	Atur Ulang Tampilan
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Seret di sekitar pusat untuk memutar tampilan  ·  Shift membatasi ke 15°
+
+# Painting symmetry presets.
+	Dual Axis	Sumbu Ganda
+	Diagonal	Diagonal
+	Transform Symmetry	Transformasi Simetri
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Sampel Titik

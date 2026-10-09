@@ -13,6 +13,8 @@
 	Layer	레이어
 	Type	문자
 	Select	선택
+	Selected	선택됨
+	Scope	범위
 	Filter	필터
 	View	보기
 	Window	창
@@ -1368,6 +1370,9 @@
 	Stroke	획
 	Stroke Catch-up	획 따라잡기
 	Stroke:	획:
+	Location	위치
+	Location:	위치:
+	Preserve Transparency	투명도 유지
 	Style	스타일
 	Style Options	스타일 옵션
 	Style Options…	스타일 옵션…
@@ -2828,6 +2833,11 @@ fontWeight	Italic	기울임
 	Rotate View Tool	보기 회전 도구
 	Reset View	보기 재설정
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	중심 주위를 드래그해 보기를 회전합니다  ·  Shift는 15°로 제한
+
+# Painting symmetry presets.
+	Dual Axis	이중 축
+	Diagonal	대각선
+	Transform Symmetry	대칭 변형
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	포인트 샘플

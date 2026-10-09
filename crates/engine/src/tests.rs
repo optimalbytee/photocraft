@@ -59,9 +59,73 @@ fn file_new_takes_whole_floats_and_survives_odd_sizes() {
     s.execute("file.new", json!({"width": 512.0, "height": 511.6})).unwrap();
     let d = &s.active().unwrap().doc;
     assert_eq!((d.size.width, d.size.height), (512, 512));
-    s.execute("file.new", json!({"width": -5.0, "height": "x"})).unwrap();
+    assert!(s.execute("file.new", json!({"width": -5.0, "height": "x"})).is_err());
     let d = &s.active().unwrap().doc;
-    assert_eq!((d.size.width, d.size.height), (1, 1080));
+    assert_eq!((d.size.width, d.size.height), (512, 512));
+    assert_eq!(s.documents().len(), 1);
+}
+
+#[test]
+fn file_new_rejects_invalid_fields_without_changing_the_session() {
+    let mut s = session_with_doc();
+    let original = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.entries();
+    for (key, values) in [
+        ("width", vec![json!(0), json!(-1), json!(300001), json!("32"), json!(null)]),
+        ("height", vec![json!(0), json!(-1), json!(1e30), json!(true)]),
+        ("resolution", vec![json!(0), json!(30000.001), json!("72"), json!([])]),
+        ("mode", vec![json!("hsv"), json!(false), json!(null)]),
+        ("depth", vec![json!(12), json!("16"), json!(-1), json!(256)]),
+        ("background", vec![json!("#zzzzzz"), json!("#+0+0+0"), json!("##112233"), json!("pink"), json!(42)]),
+        ("backgroundColor", vec![json!([1, 0]), json!([2, 0, 0]), json!("red")]),
+        ("name", vec![json!(false), json!(null)]),
+        ("widht", vec![json!(32)]),
+    ] {
+        for value in values {
+            let mut p = json!({});
+            p[key] = value;
+            let error = s.execute("file.new", p).unwrap_err().to_string();
+            assert!(error.contains("file.new") && error.contains(key), "{error}");
+            assert_eq!(s.documents().len(), 1);
+            assert_eq!(s.active_index(), Some(0));
+            assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &original));
+            assert_eq!(s.active().unwrap().history.entries(), history);
+        }
+    }
+}
+
+#[test]
+fn invalid_file_new_leaves_a_floating_selection_uncommitted() {
+    let mut s = session_with_doc();
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 4, "height": 4})).unwrap();
+    s.execute("select.float", json!({"dx": 8})).unwrap();
+    let original = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.entries();
+    assert!(s.execute("file.new", json!({"depth": 12})).is_err());
+    assert!(crate::float_cmds::floating(s.active().unwrap()).is_some());
+    assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &original));
+    assert_eq!(s.active().unwrap().history.entries(), history);
+    assert_eq!(s.documents().len(), 1);
+}
+
+#[test]
+fn file_new_keeps_defaults_and_supported_modes_and_depths() {
+    for params in [json!({}), Value::Null] {
+        let mut s = Session::new();
+        s.execute("file.new", params).unwrap();
+        let d = &s.active().unwrap().doc;
+        assert_eq!((d.size.width, d.size.height, d.resolution_dpi), (1920, 1080, 72.0));
+    }
+    for mode in ["rgb", "gray", "grayscale", "cmyk", "lab"] {
+        for depth in [8, 16, 32] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 4.0, "height": 3, "mode": mode, "depth": depth, "resolution": 300})).unwrap();
+            let d = &s.active().unwrap().doc;
+            assert_eq!(Some(d.mode), crate::document_preset_cmds::color_mode(mode));
+            assert_eq!(Some(d.depth), crate::document_preset_cmds::sample_type(depth));
+            assert_eq!(d.resolution_dpi, 300.0);
+        }
+    }
 }
 
 #[test]

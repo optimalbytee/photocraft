@@ -753,7 +753,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         if icons::button(ui, "circle-dot", 24.0, b.pressure_size, tl!("Always use pressure for size")).clicked() {
                             b.pressure_size = !b.pressure_size;
                         }
-                        symmetry_menu(app, ui);
+                        crate::symmetry_ui::menu(app, ui);
                     }
                     // Pencil: Photoshop's options (no hardness or flow: the pencil is always hard).
                     Tool::Pencil => {
@@ -1004,6 +1004,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             }
                             if icons::button(ui, "ban", 26.0, false, tl!("Cancel current crop operation  (Esc)")).clicked() {
                                 app.ui.crop_rect = None;
+                                app.ui.crop_angle = 0.0;
                             }
                         });
                     }
@@ -2830,54 +2831,6 @@ fn smoothing_options(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings
         widgets::checkbox(ui, &mut s.catch_up, tl!("Stroke Catch-up"));
         widgets::checkbox(ui, &mut s.catch_up_on_end, tl!("Catch-up on Stroke End"));
         widgets::checkbox(ui, &mut s.adjust_for_zoom, tl!("Adjust for Zoom"));
-    });
-}
-
-/// The symmetry menu's rows: `paint.symmetryFromPath` name and label for each path the Paths
-/// panel lists (saved paths, the Work Path, the selected layer's shape path or vector mask).
-fn symmetry_choices(app: &PhotocraftApp) -> Vec<(String, String)> {
-    use crate::vector_ui::PathRow;
-    let Some(st) = app.session.active() else { return Vec::new() };
-    crate::vector_ui::path_rows(&st.doc, st.active_layer)
-        .into_iter()
-        .map(|row| match row.kind {
-            PathRow::Saved => (row.name.clone(), row.name),
-            PathRow::Work => ("work".to_string(), tl!("Work Path").to_string()),
-            PathRow::Layer => ("layer".to_string(), row.name),
-        })
-        .collect()
-}
-
-/// Options-bar painting symmetry: Symmetry Off, or mirror Brush and Eraser strokes across one of
-/// the document's paths (`paint.symmetryFromPath`). The button is lit while symmetry is on.
-fn symmetry_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let t = Tokens::get(ui.ctx());
-    let current = app.session.active().and_then(|st| st.symmetry_path.as_ref()).map(|axis| axis.source.clone());
-    let choices = symmetry_choices(app);
-    let resp = icons::button(ui, "arrow-left-right", 24.0, current.is_some(), tl!("Set painting symmetry options"));
-    let resp = crate::brush_picker::named(resp, tl!("Set painting symmetry options"));
-    egui::Popup::menu(&resp).show(|ui| {
-        ui.set_min_width(200.0);
-        let mut run = None;
-        if ui.add(egui::Button::selectable(current.is_none(), tl!("Symmetry Off"))).clicked() {
-            run = current.is_some().then(|| ("paint.symmetryDisable", json!({})));
-            ui.close();
-        }
-        ui.separator();
-        if choices.is_empty() {
-            ui.label(RichText::new(tl!("Draw with the Pen tool (P) or make a work path from a selection.")).color(t.text_faint));
-        }
-        for (name, label) in &choices {
-            if ui.add(egui::Button::selectable(current.as_ref() == Some(name), label)).clicked() {
-                run = Some(("paint.symmetryFromPath", json!({ "name": name })));
-                ui.close();
-            }
-        }
-        if let Some((id, params)) = run
-            && let Err(e) = app.run(id, params)
-        {
-            app.ui.status = e;
-        }
     });
 }
 

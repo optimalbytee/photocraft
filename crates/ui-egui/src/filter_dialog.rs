@@ -468,8 +468,22 @@ pub fn params_of(f: &Map<String, Value>) -> Value {
 
 /// Compute a preview document: run `command` with `params` on the proxy (scaled) copy of `doc`.
 pub fn preview_document(doc: &Document, active: Option<photocraft_doc::LayerId>, command: &str, params: &Value, k: u32) -> Option<Document> {
+    preview_document_with(doc, active, command, params, k, None)
+}
+
+/// [`preview_document`] whose filter stops early, giving `None`, once `cancel` is cancelled
+/// (a preview superseded by newer dialog values).
+pub fn preview_document_with(
+    doc: &Document,
+    active: Option<photocraft_doc::LayerId>,
+    command: &str,
+    params: &Value,
+    k: u32,
+    cancel: Option<&photocraft_engine::jobs::JobCtx>,
+) -> Option<Document> {
     let proxy = crate::proxy::proxy_document(doc, k);
     let mut s = photocraft_engine::Session::new();
+    s.set_inline_job_ctx(cancel.cloned());
     s.add_document(proxy, None);
     if let Some(id) = active {
         s.select_layer(id).ok()?;

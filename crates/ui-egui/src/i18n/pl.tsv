@@ -24,6 +24,8 @@
 	Layer	Warstwa
 	Type	Tekst
 	Select	Zaznaczenie
+	Selected	Zaznaczone
+	Scope	Zakres
 	Filter	Filtr
 	View	Widok
 	Window	Okno
@@ -1350,6 +1352,7 @@
 	Set background color	Ustaw kolor tła
 	Set foreground color	Ustaw kolor pierwszego planu
 	Set painting symmetry options	Ustaw opcje symetrii malowania
+	Symmetry Off	Symetria wyłączona
 	Set shape fill type	Ustaw typ wypełnienia kształtu
 	Set shape stroke type	Ustaw typ obrysu kształtu
 	Set the text color	Ustaw kolor tekstu
@@ -1391,6 +1394,7 @@
 	Stroke	Obrys
 	Stroke Catch-up	Dogonienie pociągnięcia
 	Stroke:	Obrys:
+	Location:	Położenie:
 	Style	Styl
 	Style Options	Opcje stylu
 	Style Options…	Opcje stylu…
@@ -3273,6 +3277,11 @@ cameraRaw	Roughness	Chropowatość
 	Rotate View Tool	Narzędzie Obróć widok
 	Reset View	Resetuj widok
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Przeciągnij wokół środka, aby obrócić widok  ·  Shift ogranicza do 15°
+
+# Painting symmetry presets.
+	Dual Axis	Podwójna oś
+	Diagonal	Ukośna
+	Transform Symmetry	Przekształć symetrię
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Próbka punktowa

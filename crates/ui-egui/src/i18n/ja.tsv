@@ -21,6 +21,8 @@
 	Layer	レイヤー
 	Type	文字
 	Select	選択
+	Selected	選択済み
+	Scope	範囲
 	Top Left	左上
 	Top Right	右上
 	Bottom Left	左下
@@ -1397,6 +1399,7 @@
 	Stroke	線
 	Stroke Catch-up	ストロークの追従
 	Stroke:	線:
+	Location:	位置:
 	Style	スタイル
 	Style Options	スタイルオプション
 	Style Options…	スタイルオプション…
@@ -2232,6 +2235,11 @@ fontWeight	Italic	斜体
 	Rotate View Tool	表示回転ツール
 	Reset View	表示をリセット
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	中心の周りをドラッグして表示を回転  ·  Shift で 15° 単位
+
+# Painting symmetry presets.
+	Dual Axis	二軸
+	Diagonal	斜め
+	Transform Symmetry	対称軸を変形
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	ポイントサンプル

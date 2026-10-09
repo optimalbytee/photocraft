@@ -24,6 +24,8 @@
 	Layer	Calque
 	Type	Texte
 	Select	Sélection
+	Selected	Sélectionnés
+	Scope	Portée
 	Top Left	En haut à gauche
 	Top Right	En haut à droite
 	Bottom Left	En bas à gauche
@@ -1376,6 +1378,7 @@
 	Stroke	Contour
 	Stroke Catch-up	Rattrapage du trait
 	Stroke:	Contour :
+	Location:	Emplacement :
 	Style	Style
 	Style Options	Options de style
 	Style Options…	Options de style…
@@ -2672,6 +2675,11 @@ fontWeight	Italic	Italique
 	Rotate View Tool	Outil Rotation de la vue
 	Reset View	Réinitialiser la vue
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Faites glisser autour du centre pour tourner la vue  ·  Maj contraint à 15°
+
+# Painting symmetry presets.
+	Dual Axis	Deux axes
+	Diagonal	Diagonale
+	Transform Symmetry	Transformer la symétrie
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	Échantillon ponctuel

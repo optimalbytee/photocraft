@@ -123,8 +123,29 @@ fn map_pixels(s: &mut Session, label: &str, p: &Value, f: impl FnOnce(Rect, &mut
 /// Edit › Stroke: a band along the selection edge (or the layer's opaque edge without a selection).
 fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let width = p.get("width").and_then(Value::as_f64).unwrap_or(1.0).clamp(1.0, 250.0) as f32;
-    let mut color = color_param(p, "color", s.tools.foreground);
-    color[3] *= (p.get("opacity").and_then(Value::as_f64).unwrap_or(100.0) as f32 / 100.0).clamp(0.0, 1.0);
+    let color = color_param(p, "color", s.tools.foreground);
+    let mode = match p.get("mode") {
+        None | Some(Value::Null) => photocraft_color::BlendMode::Normal,
+        Some(Value::String(m)) => crate::commands::blend_from_str(m)
+            .filter(|m| *m != photocraft_color::BlendMode::PassThrough)
+            .ok_or_else(|| EngineError::BadParams { cmd: "edit.stroke".into(), msg: format!("unknown blend mode `{m}`") })?,
+        Some(v) => return Err(EngineError::BadParams { cmd: "edit.stroke".into(), msg: format!("mode must be a blend mode name, not {v}") }),
+    };
+    let opacity = match p.get("opacity") {
+        None | Some(Value::Null) => 1.0,
+        Some(v) => {
+            (v.as_f64()
+                .filter(|x| x.is_finite())
+                .ok_or_else(|| EngineError::BadParams { cmd: "edit.stroke".into(), msg: "opacity must be a finite number from 0 to 100".into() })?
+                .clamp(0.0, 100.0)
+                / 100.0) as f32
+        }
+    };
+    let preserve = match p.get("preserveTransparency") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(v)) => *v,
+        Some(_) => return Err(EngineError::BadParams { cmd: "edit.stroke".into(), msg: "preserveTransparency must be true or false".into() }),
+    };
     let location = p.get("location").and_then(Value::as_str).unwrap_or("center").to_string();
     let id = layer_param(s, p)?;
     s.edit("Stroke", |doc, _| {
@@ -151,7 +172,7 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
         let area = band.content_bounds().intersect(&canvas);
         if !area.is_empty() {
-            crate::pixels::fill_surface(surf, area, color, Some(&band), lock);
+            crate::fill_cmds::blend_color_mask(surf, area, color, &band, mode, opacity, preserve || lock);
             surf.prune();
         }
         Ok(())
@@ -624,7 +645,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Stroke…",
             &["Edit"],
             None,
-            r##"{"width":1..250=1,"color":"#rrggbb|[r,g,b,a]"=foreground,"location":"inside|center|outside"="center","opacity":0..100=100}"##,
+            r##"{"width":1..250=1,"color":"#rrggbb|[r,g,b,a]"=foreground,"location":"inside|center|outside"="center","mode":"any layer blend mode"="normal","opacity":0..100=100,"preserveTransparency":bool=false}"##,
             has_pixels,
             stroke
         ),
@@ -885,6 +906,52 @@ mod tests {
         s.execute("edit.stroke", json!({"width": 3, "color": "#00ff00", "location": "outside"})).unwrap();
         assert_eq!(pixel(&s, 8, 15), vec![0.0, 1.0, 0.0, 1.0]);
         assert_eq!(pixel(&s, 15, 15), vec![0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn stroke_uses_fill_blending_and_preserves_transparency_at_every_depth() {
+        for depth in [8, 16, 32] {
+            let mut s = session(depth);
+            paint_square(&mut s, Rect::new(10, 10, 20, 20), [0.5, 0.5, 0.5, 1.0]);
+            s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+
+            let past = s.active().unwrap().history.past_len();
+            s.execute(
+                "edit.stroke",
+                json!({"width": 2, "color": "#ffffff", "location": "inside", "mode": "multiply", "opacity": 100, "preserveTransparency": true}),
+            )
+            .unwrap();
+            assert_eq!(s.active().unwrap().history.past_len(), past + 1, "Stroke is one history step");
+            let edge = pixel(&s, 10, 15);
+            assert!((edge[0] - 0.5).abs() < 0.015, "{depth}-bit Multiply must preserve gray: {edge:?}");
+            assert_eq!(edge[3], 1.0);
+
+            s.execute("edit.stroke", json!({"width": 2, "color": "#ffffff", "location": "outside", "preserveTransparency": true})).unwrap();
+            assert_eq!(pixel(&s, 9, 15)[3], 0.0, "{depth}-bit transparency lock prevents new outer pixels");
+
+            s.execute("edit.stroke", json!({"width": 2, "color": "#ffffff", "location": "outside", "opacity": 50})).unwrap();
+            let out = pixel(&s, 9, 15);
+            assert!((out[3] - 0.5).abs() < 0.015, "{depth}-bit 50% stroke opacity: {out:?}");
+            s.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(pixel(&s, 9, 15)[3], 0.0);
+        }
+    }
+
+    #[test]
+    fn stroke_rejects_invalid_blending_options_without_modifying_the_document() {
+        let mut s = session(8);
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+        let past = s.active().unwrap().history.past_len();
+        for params in [
+            json!({"mode": "unknown-mode"}),
+            json!({"mode": 42}),
+            json!({"mode": "passThrough"}),
+            json!({"opacity": "lots"}),
+            json!({"preserveTransparency": "true"}),
+        ] {
+            assert!(s.execute("edit.stroke", params.clone()).is_err(), "{params}");
+            assert_eq!(s.active().unwrap().history.past_len(), past, "{params} should not create a history step");
+        }
     }
 
     #[test]

@@ -919,7 +919,18 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         "file.export.colorLookupTables" => {
             let (_, _, name) = doc?;
             let stem = name.rsplit_once('.').map_or(name.as_str(), |(a, _)| a).to_string();
-            dialog(app, json!({"path": format!("{dir}/{stem}.cube"), "size": 33, "title": stem}), json!({}))
+            // A selected adjustment is a common use case, but existing no-selection exports
+            // continue to bake the entire visible stack. The scope remains explicit in the UI.
+            let selected_adjustments = app.session.active().is_some_and(|st| {
+                let chosen = st.selected_layers();
+                !chosen.is_empty()
+                    && chosen.iter().all(|id| {
+                        st.doc.layers.iter().any(|root| root.id == *id)
+                            && st.doc.layer(*id).is_some_and(|layer| layer.visible && matches!(layer.content, photocraft_doc::LayerContent::Adjustment(_)))
+                    })
+            });
+            let scope = if selected_adjustments { "selected" } else { "all" };
+            dialog(app, json!({"path": format!("{dir}/{stem}.cube"), "size": 33, "title": stem, "scope": scope}), json!({"scope": ["all", "selected"]}))
         }
         "file.scripts.loadFilesIntoStack" => dialog(app, json!({"paths": dir}), json!({})),
         // Photography automation (photo_cmds / lens_cmds): a folder (or the open documents).

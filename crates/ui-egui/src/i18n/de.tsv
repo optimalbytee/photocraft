@@ -21,6 +21,8 @@
 	Layer	Ebene
 	Type	Text
 	Select	Auswahl
+	Selected	Ausgewählt
+	Scope	Umfang
 	Top Left	Oben links
 	Top Right	Oben rechts
 	Bottom Left	Unten links
@@ -1391,6 +1393,8 @@
 	Stroke	Kontur
 	Stroke Catch-up	Strich nachführen
 	Stroke:	Kontur:
+	Location	Position
+	Location:	Position:
 	Style	Stil
 	Style Options	Stiloptionen
 	Style Options…	Stiloptionen…
@@ -2288,6 +2292,11 @@ fontWeight	Italic	Kursiv
 	Rotate View Tool	Ansicht-drehen-Werkzeug
 	Reset View	Ansicht zurücksetzen
 	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Ansicht drehen: im Bogen ziehen · Umschalt: 15°-Schritte
+
+# Painting symmetry presets.
+	Dual Axis	Duale Achse
+	Diagonal	Diagonal
+	Transform Symmetry	Symmetrie transformieren
 
 # Eyedropper Sample Size and Sample (#1649).
 	Point Sample	1 Pixel
