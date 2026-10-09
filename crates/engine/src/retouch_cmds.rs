@@ -42,7 +42,7 @@ fn has_pixel_layer(s: &Session) -> std::result::Result<(), String> {
     if matches!(l.content, LayerContent::Raster(_)) || l.mask.is_some() {
         Ok(())
     } else {
-        Err(format!("active layer is a {} layer, not a pixel layer", l.content.kind_name()))
+        Err(format!("active layer is {} {} layer, not a pixel layer", l.content.article(), l.content.kind_name()))
     }
 }
 
@@ -81,10 +81,7 @@ fn parse_brush(s: &Session, p: &Value, cmd: &str) -> Result<(Stroke, Option<Laye
     if pts.is_empty() {
         return Err(bad(cmd, "`points` is empty"));
     }
-    // A stroke runs dab by dab along its length: an absurd coordinate would mean billions of dabs.
-    if pts.iter().any(|q| !(q.x.abs() <= crate::brush_cmds::MAX_COORD && q.y.abs() <= crate::brush_cmds::MAX_COORD)) {
-        return Err(bad(cmd, format!("point coordinates must be finite and within ±{}", crate::brush_cmds::MAX_COORD)));
-    }
+    crate::brush_cmds::check_coords(&pts, cmd)?;
     let base = s.tools.brush.clone();
     let pct = |k: &str, d: f32, lo: f32, hi: f32| num(p, k, d).clamp(lo, hi) / 100.0;
     let brush = BrushSettings {
@@ -318,6 +315,7 @@ enum LivePaint {
 pub struct LiveRetouch {
     /// The active document with the stroke so far.
     pub doc: std::sync::Arc<Document>,
+    cmd: String,
     renderer: photocraft_paint::StrokeRenderer,
     pre: std::sync::Arc<Document>,
     pre_surf: Surface,
@@ -364,8 +362,21 @@ impl LiveRetouch {
             LivePaint::History(src) if src.format() != pre_surf.format() => LivePaint::History(src.convert(pre_surf.format())),
             other => other,
         };
-        let mut live =
-            Self { doc: std::sync::Arc::new(doc), renderer, pre, pre_surf, id, params: p.clone(), paint, mode, opacity, sel, lock, tail: Rect::EMPTY };
+        let mut live = Self {
+            doc: std::sync::Arc::new(doc),
+            cmd: cmd.into(),
+            renderer,
+            pre,
+            pre_surf,
+            id,
+            params: p.clone(),
+            paint,
+            mode,
+            opacity,
+            sel,
+            lock,
+            tail: Rect::EMPTY,
+        };
         live.push(&stroke.points)?;
         Ok(live)
     }
@@ -380,7 +391,9 @@ impl LiveRetouch {
     /// the commit, and pixels painted earlier in the stroke are never re-cloned. What finishing
     /// the stroke now would add is drawn too (a lone first dab shows on the press), and redrawn on
     /// every step.
+    /// Invalid coordinates reject the whole batch without changing the preview.
     pub fn push(&mut self, pts: &[StrokePoint]) -> Result<Rect> {
+        crate::brush_cmds::check_coords(pts, &self.cmd)?;
         self.renderer.push(pts);
         let old = std::mem::replace(&mut self.tail, Rect::EMPTY);
         let mut dmg = Rect::EMPTY;
@@ -658,6 +671,77 @@ fn color_dab(fmt: &PixelFormat, work: &mut Region, fp: &Footprint, strength: f32
     }
 }
 
+/// Dodge and Burn: a stroke tones each pixel once, from its original colour, mixed in by the
+/// stroke's coverage there (`toned` is the full-exposure colour). Dabs build up coverage as in a
+/// brush stroke, capped at full coverage, so Exposure caps a stroke the way Opacity caps a paint
+/// stroke: overlapping dabs and passes within one stroke don't compound the tone curve, and a
+/// new stroke builds on the last.
+fn tone_stroke(fmt: PixelFormat, toned: impl Fn([f32; 3]) -> [f32; 3] + 'static) -> DabEffect {
+    /// Side of the cells that remember, per touched pixel, the coverage applied so far and the
+    /// original pixel (copied from the working pixels the first time a dab reaches it). Dense
+    /// cells rather than a map per pixel: a map lookup per covered pixel made long strokes with
+    /// large brushes over ten times slower.
+    const CELL: i32 = 64;
+    struct Cell {
+        cov: Vec<f32>,
+        orig: Vec<f32>,
+    }
+    let mut cells: std::collections::HashMap<(i32, i32), Cell> = std::collections::HashMap::new();
+    let a = alpha_index(&fmt);
+    let n = fmt.channels();
+    Box::new(move |work, fp| {
+        let r = fp.rect.intersect(&work.rect);
+        if r.is_empty() {
+            return;
+        }
+        let mut enc = [0.0f32; 8];
+        for cy in r.y0.div_euclid(CELL)..=(r.y1 - 1).div_euclid(CELL) {
+            for cx in r.x0.div_euclid(CELL)..=(r.x1 - 1).div_euclid(CELL) {
+                let cr = Rect::new(cx * CELL, cy * CELL, cx * CELL + CELL, cy * CELL + CELL);
+                let part = r.intersect(&cr);
+                if part.is_empty() {
+                    continue;
+                }
+                let len = (CELL * CELL) as usize;
+                // Coverage -1: not touched yet, so `orig` isn't filled in for that pixel.
+                let cell = cells.entry((cx, cy)).or_insert_with(|| Cell { cov: vec![-1.0; len], orig: vec![0.0; len * n] });
+                for y in part.y0..part.y1 {
+                    for x in part.x0..part.x1 {
+                        let k = fp.at(x, y).clamp(0.0, 1.0);
+                        if k <= 0.0 {
+                            continue;
+                        }
+                        let i = ((y - cr.y0) * CELL + (x - cr.x0)) as usize;
+                        let (Some(prev), Some(src)) = (cell.cov.get_mut(i), cell.orig.get_mut(i * n..i * n + n)) else { continue };
+                        if *prev < 0.0 {
+                            // First touch: the working pixel is still the original.
+                            src.copy_from_slice(work.px(x, y));
+                            *prev = 0.0;
+                        }
+                        // Dabs build up the stroke's coverage as a brush stroke's do (flow), up
+                        // to full coverage; the tone is applied once, from the original.
+                        let k = *prev + k * (1.0 - *prev);
+                        if k <= *prev {
+                            continue;
+                        }
+                        *prev = k;
+                        let o = to_rgba(&fmt, src);
+                        let t = toned([o[0], o[1], o[2]]);
+                        let m = [o[0] + (t[0] - o[0]) * k, o[1] + (t[1] - o[1]) * k, o[2] + (t[2] - o[2]) * k];
+                        from_rgba_into(&fmt, [m[0], m[1], m[2], o[3]], &mut enc);
+                        let px = work.px_mut(x, y);
+                        for c in 0..n {
+                            if Some(c) != a {
+                                px[c] = enc[c];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
 fn tone_range(p: &Value, cmd: &str) -> Result<ToneRange> {
     match string(p, "range", "midtones") {
         "shadows" => Ok(ToneRange::Shadows),
@@ -732,9 +816,7 @@ impl DabTool {
     fn effect(&self, fmt: PixelFormat, spacing: f32) -> DabEffect {
         let sp = spacing;
         match self.clone() {
-            Self::Tone { burn, range, exposure, protect } => {
-                Box::new(move |work, fp| color_dab(&fmt, work, fp, exposure, sp, |c, k| dodge_burn(c, k, range, burn, protect)))
-            }
+            Self::Tone { burn, range, exposure, protect } => tone_stroke(fmt, move |c| dodge_burn(c, exposure, range, burn, protect)),
             // Flow is already in each dab's coverage; a full-flow pass moves colours half-way.
             Self::Sponge { saturate, vibrance } => Box::new(move |work, fp| color_dab(&fmt, work, fp, 0.5, sp, |c, k| sponge(c, k, saturate, vibrance))),
             Self::Focus { sharpen, strength, protect, sigma } => {
@@ -798,6 +880,7 @@ fn dab_cmd(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
 pub struct LiveDab {
     /// The active document with the stroke so far.
     pub doc: std::sync::Arc<Document>,
+    cmd: String,
     renderer: photocraft_paint::StrokeRenderer,
     done: usize,
     effect: DabEffect,
@@ -830,6 +913,7 @@ impl LiveDab {
         let renderer = photocraft_paint::StrokeRenderer::new(&stroke.brush, None, 1.0).record_dabs();
         let mut live = Self {
             doc: std::sync::Arc::new(doc),
+            cmd: cmd.into(),
             renderer,
             done: 0,
             effect,
@@ -853,7 +937,9 @@ impl LiveDab {
     }
 
     /// Render more points; returns the rectangle that changed.
+    /// Invalid coordinates reject the whole batch without changing the preview.
     pub fn push(&mut self, pts: &[StrokePoint]) -> Result<Rect> {
+        crate::brush_cmds::check_coords(pts, &self.cmd)?;
         self.renderer.push(pts);
         let ctx = self.renderer.ctx.clone();
         let new: Vec<_> = self.renderer.dabs().get(self.done..).unwrap_or_default().to_vec();

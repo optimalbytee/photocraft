@@ -51,7 +51,7 @@ pub(crate) fn active_pixels(app: &PhotocraftApp) -> Result<(LayerId, Surface, bo
     match &l.content {
         LayerContent::Raster(s) => Ok((id, s.clone(), false)),
         LayerContent::Smart(sm) => sm.cache.clone().map(|c| (id, c, true)).ok_or_else(|| "the smart object has no pixels".to_string()),
-        other => Err(format!("needs a pixel layer or smart object (active layer is a {} layer)", other.kind_name())),
+        other => Err(format!("needs a pixel layer or smart object (active layer is {} {} layer)", other.article(), other.kind_name())),
     }
 }
 

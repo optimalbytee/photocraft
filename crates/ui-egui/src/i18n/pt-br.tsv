@@ -21,8 +21,12 @@
 	Layer	Camada
 	Type	Tipo
 	Select	Selecionar
+	Top Left	Superior esquerdo
+	Top Right	Superior direito
+	Bottom Left	Inferior esquerdo
+	Bottom Right	Inferior direito
 	Filter	Filtro
-	View	Visualizar
+	View	Exibir
 	Window	Janela
 	Help	Ajuda
 	(coming soon)	(em breve)
@@ -115,8 +119,8 @@
 	Distort	Distorcer
 	Perspective	Perspectiva
 	Warp	Deformar
-	Flip Horizontal	Inverter horizontalmente
-	Flip Vertical	Inverter verticalmente
+	Flip Horizontal	Espelhar horizontalmente
+	Flip Vertical	Espelhar verticalmente
 	Rotate 180°	Girar 180°
 	Rotate 90° Clockwise	Girar 90° no sentido horário
 	Rotate 90° Counter Clockwise	Girar 90° no sentido anti-horário
@@ -213,8 +217,8 @@
 	Image Size…	Tamanho da imagem…
 	Canvas Size…	Tamanho da tela de pintura…
 	Image Rotation	Rotação da imagem
-	Flip Canvas Horizontal	Inverter tela de pintura horizontalmente
-	Flip Canvas Vertical	Inverter tela de pintura verticalmente
+	Flip Canvas Horizontal	Espelhar tela de pintura horizontalmente
+	Flip Canvas Vertical	Espelhar tela de pintura verticalmente
 	Crop	Cortar
 	Trim…	Aparar…
 	Reveal All	Revelar tudo
@@ -1005,11 +1009,11 @@
 	Fixed	Fixo
 	Fixed Ratio	Proporção fixa
 	Fixed Size	Tamanho fixo
-	Flip	Inverter
-	Flip X	Inverter X
-	Flip X Jitter	Variação de inversão X
-	Flip Y	Inverter Y
-	Flip Y Jitter	Variação de inversão Y
+	Flip	Espelhar
+	Flip X	Espelhar X
+	Flip X Jitter	Variação de espelhamento X
+	Flip Y	Espelhar Y
+	Flip Y Jitter	Variação de espelhamento Y
 	Flow	Fluxo
 	Flow Jitter	Variação do fluxo
 	Focal Length	Distância focal
@@ -1354,7 +1358,7 @@
 	Size:	Tamanho:
 	Slice Options…	Opções de fatia…
 	Slices From Guides	Fatias a partir de guias
-	Slices are locked (View › Lock Slices)	As fatias estão bloqueadas (Visualizar › Bloquear fatias)
+	Slices are locked (View › Lock Slices)	As fatias estão bloqueadas (Exibir › Bloquear fatias)
 	Small Caps	Versaletes
 	Smoothing	Suavização
 	Space After	Espaço depois
@@ -1371,6 +1375,7 @@
 	Stroke	Traçado
 	Stroke Catch-up	Recuperação do traço
 	Stroke:	Traçado:
+	Location:	Local:
 	Style	Estilo
 	Style Options	Opções de estilo
 	Style Options…	Opções de estilo…
@@ -1449,6 +1454,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navegar   {key} executar   esc fechar
 	Version {version}	Versão {version}
 	New Document	Novo documento
+	Preset Name	Nome da predefinição
+	No saved presets yet.	Nenhuma predefinição salva ainda.
 	Error	Erro
 	Command	Comando
 	Adjustment layers have nothing to transform	Camadas de ajuste não têm nada a transformar
@@ -1492,7 +1499,7 @@
 	Current Tool	Ferramenta atual
 	Custom Shape Tool	Ferramenta Forma personalizada
 	Cyans	Cianos
-	Default Photoshop Size	Tamanho padrão do Photoshop
+	Default Photoshop Size	Padrão do Photoshop
 	Delete Workspace	Excluir espaço de trabalho
 	Diamond	Diamante
 	Dimensions:	Dimensões:
@@ -1517,7 +1524,7 @@
 	Eraser	Borracha
 	Eraser Tool	Ferramenta Borracha
 	ExtraBold	Extranegrito
-	ExtraLight	Extrafino
+	ExtraLight	Extraleve
 	Eyedropper Tool	Ferramenta Conta-gotas
 	Fade	Atenuar
 	Fill Opacity	Opacidade do preenchimento
@@ -1552,7 +1559,7 @@
 	Layer Knocks Out Drop Shadow	A camada vaza a sombra projetada
 	Legal	Ofício
 	Letter	Carta
-	Light	Fino
+	Light	Leve
 	Line Tool	Ferramenta Linha
 	Linear	Linear
 	Linear Burn	Superexposição linear
@@ -1974,6 +1981,8 @@
 	CPU (no GPU acceleration)	CPU (sem aceleração por GPU)
 	DirectX 12	DirectX 12
 	GPU backend	Backend da GPU
+	Linux display server	Servidor de exibição Linux
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	Usar a pressão da mesa digitalizadora
@@ -2112,7 +2121,7 @@
 	Show New Snapshot Dialog by Default	Mostrar a caixa de diálogo Novo instantâneo por padrão
 	Clear History	Limpar histórico
 	Panel Options…	Opções do painel…
-	View menu	Menu Visualizar
+	View menu	Menu Exibir
 	Keep view in sync	Manter a visualização sincronizada
 	{zoom}%	{zoom}%
 	Mouse Controls	Controles do mouse
@@ -2141,7 +2150,7 @@
 	Roman	Normal
 	Bold Italic	Negrito itálico
 	Ultra Light	Ultrafino
-	Extra Light	Extrafino
+	Extra Light	Extraleve
 	Semi Bold	Seminegrito
 	Extra Bold	Extranegrito
 	Ultra Bold	Ultranegrito
@@ -2342,7 +2351,6 @@
 	Color Profile	Perfil de cores
 	Units	Unidades
 	Columns	Colunas
-	Do you want to save you made to “{name}” before quitting?	Deseja salvar as alterações feitas em “{name}” antes de sair?
 	Create new count group	Criar novo grupo de contagem
 	Adjustment Layer	Camada de ajuste
 	Pencil Tool	Ferramenta Lápis
@@ -2459,9 +2467,10 @@
 	32 bit (float)	32 bits (flutuante)
 	Floating point	Ponto flutuante
 	Use Global Light	Usar luz global
-	Native file drag-and-drop is unavailable	Arrastar e soltar arquivos nativo indisponível
-	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Arrastar e soltar arquivos nativo ainda não é compatível com Wayland. Use Arquivo › Abrir ou copie a imagem no gerenciador de arquivos e cole-a com {paste}.
+	Native file drag-and-drop is unavailable	Arrastar e soltar arquivos não está disponível
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	O recurso nativo de arrastar e soltar arquivos ainda não funciona no Wayland. Use Arquivo › Abrir ou copie a imagem no gerenciador de arquivos e cole-a com {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Para soltar arquivos, execute o PhotoCraft no XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	Ou defina Preferências › Desempenho › Servidor de exibição Linux como X11: o PhotoCraft passa a iniciar sempre no XWayland.
 	Edit › Paste	Editar › Colar
 	Use File › Open, or paste a copied image with {paste}.	Use Arquivo › Abrir ou cole uma imagem copiada com {paste}.
 	Mixer Brush Tool	Ferramenta Pincel misturador
@@ -2504,6 +2513,7 @@ cameraRaw	Blending	Mesclagem
 	Patch Tool	Ferramenta Correção
 	Patch:	Correção:
 	Lasso around an area, then drag the selection	Contorne uma área com o laço e arraste a seleção
+	Now drag the selection onto another area	Agora arraste a seleção para outra área
 	3 x 3	3 × 3
 	4 x 4	4 × 4
 	5 x 5	5 × 5
@@ -2601,6 +2611,14 @@ cameraRaw	Whites	Brancos
 	Channels:	Canais:
 	Knockout	Vazado
 	Apply At Canvas Bounds	Aplicar efeito nos limites da tela
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	Seletor de cores (Cor do texto)
+	Pick screen color	Escolher cor da tela
+	Sample a pixel anywhere on the screen	Amostrar um pixel em qualquer lugar da tela
+	Click to pick · Esc to cancel	Clique para escolher · Esc para cancelar
+	Pick a screen pixel or press Esc to cancel	Escolha um pixel da tela ou pressione Esc para cancelar
+	Scroll to zoom	Role para ampliar
 	Show/Hide All Panels	Mostrar/ocultar todos os painéis
 	Show/Hide Panels	Mostrar/ocultar painéis
 	Could not open	Não foi possível abrir
@@ -2659,3 +2677,31 @@ fontWeight	Italic	Itálico
 # Pattern Stamp tool
 	Pattern Stamp Tool	Ferramenta Carimbo de padrão
 	Impressionist	Impressionista
+	Rotate View Tool	Ferramenta Girar visualização
+	Reset View	Redefinir visualização
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Arraste ao redor do centro para girar a visualização  ·  Shift restringe a 15°
+
+# Painting symmetry presets.
+	Dual Axis	Eixo duplo
+	Diagonal	Diagonal
+	Transform Symmetry	Transformar simetria
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Amostra pontual
+	3 by 3 Average	Média de 3 × 3
+	5 by 5 Average	Média de 5 × 5
+	11 by 11 Average	Média de 11 × 11
+	31 by 31 Average	Média de 31 × 31
+	51 by 51 Average	Média de 51 × 51
+	101 by 101 Average	Média de 101 × 101
+	Sample Size:	Tamanho da amostra:
+	All Layers No Adjustments	Todas as camadas sem ajustes
+	Current & Below No Adjustments	Atual e abaixo sem ajustes
+	Show Sampling Ring	Mostrar anel de amostragem
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Fora da gama de impressão: clique para a cor imprimível mais próxima
+	Not a web colour: click for the nearest web colour	Não é uma cor da Web: clique para a cor da Web mais próxima
+	Color to Alpha…	Cor para alfa…
+	Transparency Threshold	Limiar de transparência
+	Opacity Threshold	Limiar de opacidade

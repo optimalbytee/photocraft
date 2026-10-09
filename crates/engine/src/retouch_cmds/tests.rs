@@ -230,6 +230,22 @@ fn dodge_brightens_midtones_more_than_shadows_and_burn_darkens() {
 }
 
 #[test]
+fn dodge_does_not_compound_within_a_stroke() {
+    // Going back over the same spot in one stroke tones it no further; a second stroke does.
+    let once = |pts: Value| {
+        let mut s = session(80, 20, 8, "rgb");
+        paint_layer(&mut s, |_, _| [0.5, 0.5, 0.5, 1.0]);
+        s.execute("paint.dodge", json!({"points": pts, "size": 10, "hardness": 100})).unwrap();
+        (rgba(&s, 40, 10)[0], s)
+    };
+    let (single, mut s) = once(json!([[5, 10], [75, 10]]));
+    let (scrubbed, _) = once(json!([[5, 10], [75, 10], [5, 10], [75, 10]]));
+    assert!(single > 0.55 && (single - scrubbed).abs() < 1.0 / 255.0, "{single} {scrubbed}");
+    s.execute("paint.dodge", json!({"points": [[5, 10], [75, 10]], "size": 10, "hardness": 100})).unwrap();
+    assert!(rgba(&s, 40, 10)[0] > single + 0.02);
+}
+
+#[test]
 fn sponge_reduces_and_increases_saturation() {
     for depth in DEPTHS {
         let mut s = session(40, 20, depth, "rgb");
@@ -1114,5 +1130,136 @@ fn live_clone_matches_the_commit() {
                 assert!((got[c] - want[c]).abs() <= tol(8), "({x}, {y}): live {got:?} vs commit {want:?}");
             }
         }
+    }
+}
+
+// Both preview implementations must reject an entire pointer batch before their renderer,
+// coverage, tail or working surface changes. Compare a resumed stroke with a clean control.
+macro_rules! live_coordinate_regression {
+    ($name:ident, $live:ty, [$($cmd:literal),+]) => {
+        #[test]
+        fn $name() {
+            for depth in DEPTHS {
+                let mut s = session(32, 32, depth, "rgb");
+                paint_layer(&mut s, texture);
+                let st = s.active().unwrap();
+                let (doc, revision, history) = (st.doc.clone(), st.revision, st.history.past_len());
+                let id = st.active_layer.unwrap();
+                for cmd in [$($cmd),+] {
+                    let p = json!({"points": [[8, 16]], "source": [4, 8], "size": 4, "hardness": 100});
+                    let mut live = <$live>::begin(&s, cmd, &p).unwrap();
+                    let mut control = <$live>::begin(&s, cmd, &p).unwrap();
+                    // The first regression case fails fast even without the guard, before any
+                    // enormous coordinate reaches the path walker.
+                    for (x, y) in [
+                        (f64::NAN, 16.0),
+                        (16.0, f64::NAN),
+                        (f64::INFINITY, 16.0),
+                        (16.0, f64::NEG_INFINITY),
+                        (1e300, 16.0),
+                        (16.0, -crate::brush_cmds::MAX_COORD - 1.0),
+                    ] {
+                        let shown = live.doc.clone();
+                        let bounds = live.bounds();
+                        let batch = [StrokePoint::new(12.0, 18.0, 1.0), StrokePoint::new(x, y, 1.0)];
+                        let err = live.push(&batch).unwrap_err();
+                        assert!(matches!(err, EngineError::BadParams { cmd: ref actual, ref msg }
+                            if actual == cmd && msg.contains("point coordinates must be finite")));
+                        assert!(std::sync::Arc::ptr_eq(&shown, &live.doc), "{cmd}: invalid batch changed the preview");
+                        assert_eq!(live.bounds(), bounds, "{cmd}");
+                    }
+                    let next = [StrokePoint::new(-4.0, 16.0, 1.0), StrokePoint::new(24.0, 16.0, 1.0)];
+                    assert_eq!(live.push(&next).unwrap(), control.push(&next).unwrap(), "{cmd}");
+                    assert_eq!(live.bounds(), control.bounds(), "{cmd}");
+                    let got = live.doc.layer(id).unwrap().surface().unwrap();
+                    let want = control.doc.layer(id).unwrap().surface().unwrap();
+                    assert_eq!(got.read_region(live.bounds()), want.read_region(control.bounds()), "{cmd}");
+                    assert_eq!(got.content_bounds(), want.content_bounds(), "{cmd}");
+                }
+                let st = s.active().unwrap();
+                assert!(std::sync::Arc::ptr_eq(&doc, &st.doc));
+                assert_eq!((st.revision, st.history.past_len()), (revision, history));
+            }
+        }
+    };
+}
+
+live_coordinate_regression!(
+    live_retouch_rejects_invalid_batches_without_changing_the_preview,
+    LiveRetouch,
+    ["paint.cloneStamp", "paint.healingBrush", "paint.historyBrush"]
+);
+live_coordinate_regression!(
+    live_dab_rejects_invalid_batches_without_changing_the_preview,
+    LiveDab,
+    ["paint.dodge", "paint.burn", "paint.sponge", "paint.blur", "paint.sharpen", "paint.smudge"]
+);
+
+/// The live Dodge shows what the commit paints, also where a stroke doubles back across the
+/// cells that remember each pixel's original colour (the live stroke edits one dab at a time).
+/// 32-bit, so the live working copy isn't quantised between dabs.
+#[test]
+fn live_dodge_matches_the_commit_across_cells() {
+    let mut s = session(200, 90, 32, "rgb");
+    paint_layer(&mut s, texture);
+    let all = [[10.0, 40.0], [100.0, 60.0], [180.0, 40.0], [60.0, 30.0], [150.0, 70.0]];
+    let pts = |v: &[[f64; 2]]| v.iter().map(|q| StrokePoint::new(q[0], q[1], 1.0)).collect::<Vec<_>>();
+    let opts = |p: &[[f64; 2]]| json!({"points": p, "size": 40, "hardness": 30, "exposure": 60, "range": "midtones"});
+    let mut live = LiveDab::begin(&s, "paint.dodge", &opts(&all[..1])).unwrap();
+    live.push(&pts(&all[1..3])).unwrap();
+    live.push(&pts(&all[3..])).unwrap();
+    let shown = live.doc.clone();
+    s.execute("paint.dodge", opts(&all)).unwrap();
+    let id = s.active().unwrap().active_layer.unwrap();
+    let (a, b) = (shown.layer(id).unwrap().surface().unwrap(), s.active().unwrap().doc.layer(id).unwrap().surface().unwrap());
+    let (mut changed, mut worst) = (false, 0.0f32);
+    for y in 0..90 {
+        for x in 0..200 {
+            let (got, want) = (a.rgba(x, y), b.rgba(x, y));
+            changed |= (want[0] - texture(x, y)[0]).abs() > 0.02;
+            // The commit also lays the stroke's last dab, which the live stroke shows on release.
+            if (x - 150).pow(2) + (y - 70).pow(2) > 25 * 25 {
+                worst = (0..4).map(|c| (got[c] - want[c]).abs()).fold(worst, f32::max);
+            }
+        }
+    }
+    assert!(changed);
+    assert!(worst <= 1e-4, "live and commit differ by {worst}");
+}
+
+#[test]
+fn retouch_strokes_refuse_absurd_point_coordinates() {
+    // #976: a segment to (1e300, 0) has an infinite length and the dab walker would never stop, so
+    // every retouch tool's `points` must stay within ±1e6, as the painting tools' do.
+    let cmds = [
+        "paint.dodge",
+        "paint.burn",
+        "paint.sponge",
+        "paint.blur",
+        "paint.sharpen",
+        "paint.smudge",
+        "paint.cloneStamp",
+        "paint.healingBrush",
+        "paint.spotHealing",
+        "paint.historyBrush",
+        "paint.patternStamp",
+    ];
+    // A single far point first: cheap even without the bound, so a regression fails fast.
+    let far = [json!([[1_000_001, 0]]), json!([[0, 0], [0, -2_000_000]]), json!([[0, 0], [1e300, 0]]), json!([[1e300, 1e300]])];
+    for depth in DEPTHS {
+        let mut s = session(32, 32, depth, "rgb");
+        paint_layer(&mut s, |x, y| [x as f32 / 32.0, y as f32 / 32.0, 0.25, 1.0]);
+        s.execute("cloneSource.set", json!({"source": [8, 8]})).unwrap();
+        let (before, past) = (rgba(&s, 16, 16), s.active().unwrap().history.past_len());
+        for cmd in cmds {
+            for points in &far {
+                let err = s.execute(cmd, json!({ "points": points })).unwrap_err();
+                assert!(err.to_string().contains("within ±"), "{cmd} {points} at {depth}: {err}");
+            }
+        }
+        assert_eq!((rgba(&s, 16, 16), s.active().unwrap().history.past_len()), (before, past), "{depth}: nothing changed");
+        // Control: a stroke on the canvas still retouches.
+        s.execute("paint.dodge", json!({"points": [[4, 16], [28, 16]], "size": 8})).unwrap();
+        assert_ne!(rgba(&s, 16, 16), before, "{depth}");
     }
 }

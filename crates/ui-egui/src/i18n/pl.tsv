@@ -1350,6 +1350,7 @@
 	Set background color	Ustaw kolor tła
 	Set foreground color	Ustaw kolor pierwszego planu
 	Set painting symmetry options	Ustaw opcje symetrii malowania
+	Symmetry Off	Symetria wyłączona
 	Set shape fill type	Ustaw typ wypełnienia kształtu
 	Set shape stroke type	Ustaw typ obrysu kształtu
 	Set the text color	Ustaw kolor tekstu
@@ -1391,6 +1392,7 @@
 	Stroke	Obrys
 	Stroke Catch-up	Dogonienie pociągnięcia
 	Stroke:	Obrys:
+	Location:	Położenie:
 	Style	Styl
 	Style Options	Opcje stylu
 	Style Options…	Opcje stylu…
@@ -1469,6 +1471,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ nawigacja   {key} uruchom   esc zamknij
 	Version {version}	Wersja {version}
 	New Document	Nowy dokument
+	Preset Name	Nazwa ustawienia wstępnego
+	No saved presets yet.	Nie ma jeszcze zapisanych ustawień wstępnych.
 	Error	Błąd
 	Command	Polecenie
 
@@ -1695,7 +1699,6 @@
 	Revert “{name}” to the last saved version? Your changes will be lost.	Przywrócić „{name}” do ostatnio zapisanej wersji? Zmiany zostaną utracone.
 	Do you want to save the changes you made to “{name}” before quitting?	Czy zapisać zmiany wprowadzone w „{name}” przed zakończeniem?
 	Do you want to save the changes you made to “{name}” before closing?	Czy zapisać zmiany wprowadzone w „{name}” przed zamknięciem?
-	Do you want to save you made to “{name}” before quitting?	Czy zapisać zmiany wprowadzone w „{name}” przed zakończeniem?
 	Doc: {flat}/{layered}	Dok.: {flat}/{layered}
 	Scratch: {size}	Dysk rob.: {size}
 	Untagged {mode}	{mode} bez profilu
@@ -2006,6 +2009,8 @@
 	CPU (no GPU acceleration)	CPU (bez akceleracji GPU)
 	DirectX 12	DirectX 12
 	GPU backend	Backend GPU
+	Linux display server	Serwer wyświetlania Linuksa
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	Użyj nacisku tabletu
@@ -2550,6 +2555,7 @@ cameraRaw	Roughness	Chropowatość
 	Patch Tool	Narzędzie Łatka
 	Patch:	Łatka:
 	Lasso around an area, then drag the selection	Zakreśl obszar lassem, a następnie przeciągnij zaznaczenie
+	Now drag the selection onto another area	Teraz przeciągnij zaznaczenie na inny obszar
 	Edit Type	Edytuj tekst
 	Make Default	Ustaw jako domyślne
 	Reset to Default	Przywróć domyślne
@@ -3189,6 +3195,14 @@ cameraRaw	Roughness	Chropowatość
 	% of all commits	% wszystkich commitów
 	Lines +/−	Wiersze +/−
 	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: PR: {prs}, commity: {commits}, wiersze +{added} / −{deleted} (Δ {delta}), pliki binarne +{binAdded} / −{binDeleted}, {first} – {last}
+
+# Text Color Picker and screen sampling
+	Color Picker (Text Color)	Próbnik kolorów (Kolor tekstu)
+	Pick screen color	Wybierz kolor z ekranu
+	Sample a pixel anywhere on the screen	Pobierz kolor piksela w dowolnym miejscu ekranu
+	Click to pick · Esc to cancel	Kliknij, aby wybrać · Esc, aby anulować
+	Pick a screen pixel or press Esc to cancel	Wybierz piksel ekranu lub naciśnij Esc, aby anulować
+	Scroll to zoom	Przewijaj, aby zmieniać powiększenie
 	Open in camera raw	Otwórz w Camera Raw
 	System title bar	Systemowy pasek tytułu
 	More documents	Więcej dokumentów
@@ -3200,6 +3214,7 @@ cameraRaw	Roughness	Chropowatość
 	{path}: the path is not valid Unicode; rename the file and open it again.	{path}: ścieżka nie jest prawidłowym Unicode; zmień nazwę pliku i otwórz go ponownie.
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Natywne przeciąganie i upuszczanie plików nie jest jeszcze obsługiwane w Wayland. Użyj Plik › Otwórz albo skopiuj obraz w menedżerze plików i wklej go za pomocą {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Aby upuszczać pliki, uruchom PhotoCraft pod XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	Albo ustaw Preferencje › Wydajność › Serwer wyświetlania Linuksa na X11: PhotoCraft będzie wtedy zawsze uruchamiany pod XWayland.
 	Edit › Paste	Edycja › Wklej
 	Use File › Open, or paste a copied image with {paste}.	Użyj Plik › Otwórz albo wklej skopiowany obraz za pomocą {paste}.
 
@@ -3257,3 +3272,31 @@ cameraRaw	Roughness	Chropowatość
 # Pattern Stamp tool
 	Pattern Stamp Tool	Narzędzie Pieczątka wzoru
 	Impressionist	Impresjonistyczny
+	Rotate View Tool	Narzędzie Obróć widok
+	Reset View	Resetuj widok
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Przeciągnij wokół środka, aby obrócić widok  ·  Shift ogranicza do 15°
+
+# Painting symmetry presets.
+	Dual Axis	Podwójna oś
+	Diagonal	Ukośna
+	Transform Symmetry	Przekształć symetrię
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Próbka punktowa
+	3 by 3 Average	Uśrednianie 3 × 3
+	5 by 5 Average	Uśrednianie 5 × 5
+	11 by 11 Average	Uśrednianie 11 × 11
+	31 by 31 Average	Uśrednianie 31 × 31
+	51 by 51 Average	Uśrednianie 51 × 51
+	101 by 101 Average	Uśrednianie 101 × 101
+	Sample Size:	Wielkość próbki:
+	All Layers No Adjustments	Wszystkie warstwy bez korekt
+	Current & Below No Adjustments	Bieżąca i poniżej bez korekt
+	Show Sampling Ring	Pokaż pierścień próbkowania
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Poza gamą druku: kliknij, aby wybrać najbliższy kolor do druku
+	Not a web colour: click for the nearest web colour	To nie jest kolor internetowy: kliknij, aby wybrać najbliższy kolor internetowy
+	Color to Alpha…	Kolor na alfę…
+	Transparency Threshold	Próg przezroczystości
+	Opacity Threshold	Próg krycia

@@ -17,6 +17,10 @@
 	Layer	Layer
 	Type	Teks
 	Select	Seleksi
+	Top Left	Kiri atas
+	Top Right	Kanan atas
+	Bottom Left	Kiri bawah
+	Bottom Right	Kanan bawah
 	Filter	Filter
 	View	Tampilan
 	Window	Jendela
@@ -1366,6 +1370,7 @@
 	Stroke	Stroke
 	Stroke Catch-up	Stroke Catch-up
 	Stroke:	Stroke:
+	Location:	Lokasi:
 	Style	Gaya
 	Style Options	Opsi Gaya
 	Style Options…	Opsi Gaya…
@@ -1444,6 +1449,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navigasi   {key} jalankan   esc tutup
 	Version {version}	Versi {version}
 	New Document	Dokumen Baru
+	Preset Name	Nama Preset
+	No saved presets yet.	Belum ada preset tersimpan.
 	Error	Error
 	Command	Perintah
 	Adjustment layers have nothing to transform	Layer penyesuaian tidak ada yang bisa ditransformasi
@@ -1969,6 +1976,8 @@
 	CPU (no GPU acceleration)	CPU (tanpa akselerasi GPU)
 	DirectX 12	DirectX 12
 	GPU backend	Backend GPU
+	Linux display server	Server tampilan Linux
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	Pakai tekanan tablet
@@ -2334,7 +2343,6 @@
 	Color Profile	Profil Warna
 	Units	Satuan
 	Columns	Kolom
-	Do you want to save you made to “{name}” before quitting?	Mau simpan perubahan yang kamu buat di “{name}” sebelum keluar?
 	Create new count group	Buat grup hitungan baru
 	Adjustment Layer	Layer Penyesuaian
 	Pencil Tool	Alat Pensil
@@ -2455,6 +2463,7 @@
 	Native file drag-and-drop is unavailable	Seret dan lepas berkas native tidak tersedia
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Seret dan lepas berkas native belum didukung di Wayland. Gunakan Berkas › Buka, atau salin gambar di pengelola berkas lalu tempel dengan {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Untuk menjatuhkan berkas, jalankan PhotoCraft di XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	Atau atur Preferensi › Performa › Server tampilan Linux ke X11: PhotoCraft lalu selalu berjalan di XWayland.
 	Edit › Paste	Edit › Tempel
 	Use File › Open, or paste a copied image with {paste}.	Gunakan Berkas › Buka, atau tempel gambar yang disalin dengan {paste}.
 	Mixer Brush Tool	Alat Kuas Pencampur
@@ -2484,6 +2493,7 @@ cameraRaw	Blending	Pembauran
 	Patch Tool	Alat Patch
 	Patch:	Patch:
 	Lasso around an area, then drag the selection	Lingkari area dengan lasso, lalu seret seleksinya
+	Now drag the selection onto another area	Sekarang seret seleksi ke area lain
 	Rendering Mode	Mode Rendering
 	Automatic (recommended)	Otomatis (disarankan)
 	CPU / Compatibility	CPU / Kompatibilitas
@@ -2581,6 +2591,14 @@ cameraRaw	Blending	Pembauran
 	Channels:	Channel:
 	Knockout	Knockout
 	Apply At Canvas Bounds	Terapkan efek di batas kanvas
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	Pemilih Warna (Warna Teks)
+	Pick screen color	Pilih warna layar
+	Sample a pixel anywhere on the screen	Ambil sampel piksel di mana saja pada layar
+	Click to pick · Esc to cancel	Klik untuk memilih · Esc untuk membatalkan
+	Pick a screen pixel or press Esc to cancel	Pilih piksel layar atau tekan Esc untuk membatalkan
+	Scroll to zoom	Gulir untuk memperbesar
 	Show/Hide All Panels	Tampilkan/Sembunyikan Semua Panel
 	Show/Hide Panels	Tampilkan/Sembunyikan Panel
 	Could not open	Tidak dapat membuka
@@ -2639,3 +2657,31 @@ fontWeight	Italic	Miring
 # Pattern Stamp tool
 	Pattern Stamp Tool	Alat Stempel Pola
 	Impressionist	Impresionis
+	Rotate View Tool	Alat Putar Tampilan
+	Reset View	Atur Ulang Tampilan
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Seret di sekitar pusat untuk memutar tampilan  ·  Shift membatasi ke 15°
+
+# Painting symmetry presets.
+	Dual Axis	Sumbu Ganda
+	Diagonal	Diagonal
+	Transform Symmetry	Transformasi Simetri
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Sampel Titik
+	3 by 3 Average	Rata-rata 3 × 3
+	5 by 5 Average	Rata-rata 5 × 5
+	11 by 11 Average	Rata-rata 11 × 11
+	31 by 31 Average	Rata-rata 31 × 31
+	51 by 51 Average	Rata-rata 51 × 51
+	101 by 101 Average	Rata-rata 101 × 101
+	Sample Size:	Ukuran Sampel:
+	All Layers No Adjustments	Semua Layer Tanpa Penyesuaian
+	Current & Below No Adjustments	Saat Ini & Di Bawahnya Tanpa Penyesuaian
+	Show Sampling Ring	Tampilkan Cincin Sampel
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Di luar gamut cetak: klik untuk warna cetak terdekat
+	Not a web colour: click for the nearest web colour	Bukan warna web: klik untuk warna web terdekat
+	Color to Alpha…	Warna ke Alpha…
+	Transparency Threshold	Ambang transparansi
+	Opacity Threshold	Ambang opasitas

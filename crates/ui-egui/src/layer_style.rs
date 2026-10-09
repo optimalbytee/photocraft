@@ -912,7 +912,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                             ui.label(RichText::new(tl!(&label)).color(t.text_dim));
                             let hexs = disp.get(key).and_then(Value::as_str).unwrap_or("#000000").to_string();
                             let mut c = parse_hex(&hexs);
-                            if ui.color_edit_button_srgba(&mut c).changed() {
+                            if crate::widgets::color_edit_button_srgba(ui, &mut c).changed() {
                                 let value = json!(format!("#{r:02x}{g:02x}{b:02x}", r = c.r(), g = c.g(), b = c.b()));
                                 disp[key] = value.clone();
                                 set_param(f, &selected, key, value);

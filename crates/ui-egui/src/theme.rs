@@ -120,6 +120,11 @@ pub struct Tokens {
 }
 
 impl Tokens {
+    /// Tool outlines need contrast on arbitrary document pixels, independently of UI theme.
+    pub(crate) fn cursor_outline() -> [Color32; 2] {
+        [Color32::from_black_alpha(160), Color32::from_white_alpha(235)]
+    }
+
     pub fn for_kind(kind: ThemeKind) -> Self {
         match kind {
             // Sampled from Photoshop 2026's default brightness (raw display values).

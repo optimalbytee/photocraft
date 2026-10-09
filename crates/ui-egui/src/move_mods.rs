@@ -87,7 +87,8 @@ fn moving(app: &PhotocraftApp) -> bool {
 /// length before so [`fold_history`] can merge the copy and the move into one step.
 fn duplicate(app: &mut PhotocraftApp) -> Option<usize> {
     let before = past_len(app)?;
-    match app.run("layer.duplicate", json!({})) {
+    // In place: the copy follows the pointer from the original, artboards too (#1531).
+    match app.run("layer.duplicate", json!({"inPlace": true})) {
         Ok(_) => Some(before),
         Err(e) => {
             app.ui.status = e;

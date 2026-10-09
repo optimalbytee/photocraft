@@ -86,7 +86,13 @@ fn setup(h: &mut Harness, background: &str, tool: &str) {
 fn xf(h: &Harness) -> ViewXform {
     let app = h.state();
     let v = &app.ui.views[0];
-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal }
+    ViewXform {
+        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
+        zoom: v.zoom,
+        center: v.center,
+        flip: app.ui.view.flip_horizontal,
+        rotation: v.rotation,
+    }
 }
 
 /// Screen point (egui points) of document point `(x, y)`.

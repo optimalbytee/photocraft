@@ -305,11 +305,10 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
         Effect::OuterGlow(g) | Effect::InnerGlow(g) => {
             // glow_map
             let inner = matches!(e, Effect::InnerGlow(_));
-            let edge = inner && g.source == GlowSource::Edge;
             let center = inner && g.source == GlowSource::Center;
             match g.technique {
                 GlowTechnique::Precise => {
-                    let d = b.field(if edge { FieldKind::Inside } else { FieldKind::Outside }, g.size);
+                    let d = b.field(if inner { FieldKind::Inside } else { FieldKind::Outside }, g.size);
                     let solid = g.size * g.spread;
                     let soft = (g.size - solid).max(1e-3);
                     let m = b.push(stage(Kernel::MGlow, Some(d), None, [solid, soft, f32::from(u8::from(center)), 0.0], 0));
@@ -473,13 +472,13 @@ fn bands(r: Rect, rows: i32) -> Vec<Rect> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn par_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R> {
+pub(crate) fn par_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R> {
     use rayon::prelude::*;
     items.into_par_iter().map(f).collect()
 }
 
 #[cfg(target_arch = "wasm32")]
-fn par_map<T, R>(items: Vec<T>, f: impl Fn(T) -> R) -> Vec<R> {
+pub(crate) fn par_map<T, R>(items: Vec<T>, f: impl Fn(T) -> R) -> Vec<R> {
     items.into_iter().map(f).collect()
 }
 

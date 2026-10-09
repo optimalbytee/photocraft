@@ -457,7 +457,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                     let _ = app.run("count.setGroup", json!({"group": gi, "visible": !g.visible}));
                 }
                 let mut rgb = g.color.to_rgb();
-                if ui.color_edit_button_rgb(&mut rgb).changed() {
+                if crate::widgets::color_edit_button_rgb(ui, &mut rgb).changed() {
                     let _ = app.run("count.setGroup", json!({"group": gi, "color": [rgb[0], rgb[1], rgb[2]], "coalesce": "count-color"}));
                 }
                 if crate::icons::button(ui, "trash", 22.0, false, tl!("Delete count group")).clicked() {
@@ -488,7 +488,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             ui.label(RichText::new(tl!("Author:")).color(t.text_dim).size(11.0));
             ui.add(egui::TextEdit::singleline(&mut app.ui.analysis.note_author).desired_width(120.0));
             ui.label(RichText::new(tl!("Color:")).color(t.text_dim).size(11.0));
-            ui.color_edit_button_rgb(&mut app.ui.analysis.note_color);
+            crate::widgets::color_edit_button_rgb(ui, &mut app.ui.analysis.note_color);
             if ui.add_enabled_ui(!doc.notes.is_empty(), |ui| crate::widgets::secondary_button(ui, tl!("Clear All"), 0.0)).inner.clicked() {
                 let _ = app.run("notes.delete", json!({"all": true}));
                 app.ui.analysis.note_selected = None;

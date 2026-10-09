@@ -17,6 +17,10 @@
 	Layer	图层
 	Type	文字
 	Select	选择
+	Top Left	左上
+	Top Right	右上
+	Bottom Left	左下
+	Bottom Right	右下
 	Filter	滤镜
 	View	视图
 	Window	窗口
@@ -982,6 +986,7 @@
 	Native file drag-and-drop is unavailable	Wayland 上不支持原生文件拖放
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Wayland 尚不支持原生文件拖放。请使用“文件 › 打开”，或在文件管理器中复制图像后使用 {paste} 粘贴。
 	To drop files, start PhotoCraft under XWayland: `{command}`	要拖放文件，请在 XWayland 下启动 PhotoCraft：`{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	或将 首选项 › 性能 › Linux 显示服务器 设为 X11：PhotoCraft 将始终在 XWayland 下启动。
 	Edit › Paste	“编辑 › 粘贴”
 	Duplicate Layers…	复制图层…
 	Duplicate style	复制样式
@@ -1397,6 +1402,9 @@
 	Stroke	描边
 	Stroke Catch-up	笔触跟随
 	Stroke:	描边：
+	Location	位置
+	Location:	位置：
+	Preserve Transparency	保留透明区域
 	Style	样式
 	Style Options	样式选项
 	Style Options…	样式选项…
@@ -1476,6 +1484,10 @@
 	↑↓ navigate   ↵ run   esc close	↑↓ 导航   ↵ 运行   esc 关闭
 	Version {version}	版本 {version}
 	New Document	新建文档
+	Saved	已保存
+	Save Preset…	保存预设…
+	Preset Name	预设名称
+	No saved presets yet.	尚无已保存的预设。
 	Error	错误
 	Command	命令
 	Adds grain to the soft edges of the brush tip.	在笔尖的柔软边缘添加颗粒。
@@ -1961,6 +1973,7 @@ cameraRaw	Blending	混合
 	Patch Tool	修补工具
 	Patch:	修补：
 	Lasso around an area, then drag the selection	用套索圈出区域，然后拖动选区
+	Now drag the selection onto another area	现在将选区拖动到另一个区域
 # Current shell labels and shortcut templates. Keep {key} platform-dependent.
 	Add a mask  (from the selection; {key} inverts)	添加蒙版  （基于选区；{key} 反相）
 	Add to selection  ({key})	添加到选区  （{key}）
@@ -2061,6 +2074,8 @@ cameraRaw	Blending	混合
 	CPU (no GPU acceleration)	CPU（无 GPU 加速）
 	DirectX 12	DirectX 12
 	GPU backend	GPU 后端
+	Linux display server	Linux 显示服务器
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	使用数位板压感
@@ -2171,6 +2186,14 @@ cameraRaw	Blending	混合
 	Channels:	通道:
 	Knockout	挖空
 	Apply At Canvas Bounds	应用画布边界的效果
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	拾色器（文字颜色）
+	Pick screen color	选取屏幕颜色
+	Sample a pixel anywhere on the screen	在屏幕任意位置采样像素
+	Click to pick · Esc to cancel	单击选取 · Esc 取消
+	Pick a screen pixel or press Esc to cancel	选取屏幕像素或按 Esc 取消
+	Scroll to zoom	滚动以缩放
 	Show/Hide All Panels	显示/隐藏所有面板
 	Show/Hide Panels	显示/隐藏面板
 	Could not open	无法打开
@@ -2233,3 +2256,32 @@ fontWeight	Italic	斜体
 	Pattern Stamp Tool	图案图章工具
 	Pattern Stamp	图案图章
 	Impressionist	印象派
+	Rotate View	旋转视图
+	Rotate View Tool	旋转视图工具
+	Reset View	重置视图
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	绕中心拖动以旋转视图  ·  Shift 限制为 15°
+
+# Painting symmetry presets.
+	Dual Axis	双轴
+	Diagonal	对角线
+	Transform Symmetry	变换对称轴
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	采样点
+	3 by 3 Average	3 × 3 平均
+	5 by 5 Average	5 × 5 平均
+	11 by 11 Average	11 × 11 平均
+	31 by 31 Average	31 × 31 平均
+	51 by 51 Average	51 × 51 平均
+	101 by 101 Average	101 × 101 平均
+	Sample Size:	采样大小：
+	All Layers No Adjustments	所有图层（不含调整）
+	Current & Below No Adjustments	当前及下方图层（不含调整）
+	Show Sampling Ring	显示采样环
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	超出打印色域：单击使用最接近的可打印颜色
+	Not a web colour: click for the nearest web colour	不是 Web 颜色：单击使用最接近的 Web 颜色
+	Color to Alpha…	颜色转为 Alpha…
+	Transparency Threshold	透明度阈值
+	Opacity Threshold	不透明度阈值

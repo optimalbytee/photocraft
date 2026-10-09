@@ -8,14 +8,14 @@
 //! - `engine.commands`: list commands with enablement
 //! - `ui.inspect`: full UI state (tool, panels, views, dialogs, windows, window size); the menu
 //!   tree is `ui.menu.list`
-//! - `ui.set {tool?, panels?, dock?, dockTabs?, dockWidth?, colorPanel?, maskTarget?, vectorMaskTarget?, selectionMode?, zoom?, center?, fit?, theme?, brushSection?, brushTab?, brushesView?, brushPicker?, brushPickerView?, brushSize?}`:
-//! - `ui.set {tool?, panels?, dock?, dockTabs?, dockWidth?, colorPanel?, maskTarget?, vectorMaskTarget?, selectionMode?, zoom?, center?, fit?, theme?, brushSection?, brushTab?, brushesView?, brushSize?}`:
+//! - `ui.set {tool?, panels?, dock?, dockTabs?, dockWidth?, colorPanel?, maskTarget?, vectorMaskTarget?, selectionMode?, zoom?, center?, rotation?, fit?, theme?, brushSection?, brushTab?, brushesView?, brushPicker?, brushPickerView?, brushSize?}`:
 //!   change UI state; any other field is an error ([`UI_SET_FIELDS`])
 //! - `ui.dialog.open {kind, fields?}` (kinds: newDocument, about, layerStyle {effect?}, colorPicker {target: foreground|background}, command {command}) / `ui.dialog.set {dialog, field, value}` / `ui.dialog.confirm {dialog, wait?}` / `ui.dialog.cancel {dialog}`
 //! - `ui.dialog.apply {dialog}`: commit Preferences changes without closing the dialog
 //! - `ui.window.open {document?}` / `ui.window.close {window}`: extra document windows
 //! - `ui.pointer {events: [{kind: down|move|up, x, y, pressure?, tiltX?, tiltY?, rotation?}], modifiers?, button?}`: drive the active tool in document coordinates (`button: "secondary"` opens the tool's canvas context menu or Brush Preset picker, or erases with Preferences › Tools › Right-click with painting tools = erase)
 //! - `ui.click {x, y, button?, count?}` / `ui.move {x, y}`: synthetic pointer input in screen points
+//!   (`count` at most [`MAX_CLICKS`])
 //! - `ui.key {key, command?, shift?, alt?, ctrl?}` / `ui.type {text}`: synthetic keyboard input
 //! - `ui.resize {width, height}`: resize the main window
 //! - `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or, with `error: true`,
@@ -45,12 +45,14 @@ pub struct ControlRequest {
     pub method: String,
     pub params: Value,
     pub reply: Sender<ControlResponse>,
+    /// Requests still queued at this instant are rejected; already dispatched work continues.
+    pub deadline: Option<std::time::Instant>,
 }
 
 impl ControlRequest {
     pub fn new(method: impl Into<String>, params: Value) -> (Self, std::sync::mpsc::Receiver<ControlResponse>) {
         let (tx, rx) = std::sync::mpsc::channel();
-        (Self { method: method.into(), params, reply: tx }, rx)
+        (Self { method: method.into(), params, reply: tx, deadline: None }, rx)
     }
 }
 
@@ -72,7 +74,7 @@ pub enum Outcome {
 /// field's value is validated before the first one is applied, so a typo, an unknown field, a
 /// bad value or a bad nested key can't reply with success while nothing — or only half of it —
 /// changed (#412).
-pub const UI_SET_FIELDS: [&str; 21] = [
+pub const UI_SET_FIELDS: [&str; 25] = [
     "tool",
     "panels",
     "dock",
@@ -84,6 +86,7 @@ pub const UI_SET_FIELDS: [&str; 21] = [
     "selectionMode",
     "zoom",
     "center",
+    "rotation",
     "fit",
     "theme",
     "brushSection",
@@ -94,7 +97,15 @@ pub const UI_SET_FIELDS: [&str; 21] = [
     "brushSize",
     "gradientBlendMode",
     "gradientClassic",
+    "eyedropperSampleSize",
+    "eyedropperSample",
+    "eyedropperRing",
 ];
+
+/// Most clicks one `ui.click` may queue (#982). Each click is a press and a release that the app
+/// feeds in its own frame before replying, so `count` sizes both the input queue and the wait;
+/// the same ceiling as the steps of one batch request.
+pub const MAX_CLICKS: u64 = 256;
 
 fn ok(v: Value) -> Outcome {
     Outcome::Done(json!({"ok": true, "result": v}))
@@ -199,6 +210,9 @@ fn screen_point(app: &PhotocraftApp, x: f64, y: f64) -> [f32; 2] {
     [p.x, p.y]
 }
 
+/// The `dialog` id of the shell's own dialog (`workspace_ui`) in `ui.inspect` and `ui.dialog.*`.
+const SHELL_DIALOG: &str = "shell";
+
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) -> Outcome {
     let saved = app.session.authorize;
     if let Some(gate) = app.services.automation_authorize {
@@ -231,6 +245,11 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
         }
         "engine.execute" | "ui.menu.invoke" => {
             let Some(id) = s("command").or(s("id")) else { return err("missing `command`") };
+            // A control-channel menu click must respect the same modal gate as the native menu.
+            // engine.execute is deliberately not subject to the UI's menu-click semantics.
+            if req.method == "ui.menu.invoke" && !crate::menus::modal_allows(app, id) {
+                return err("menu command is unavailable while a modal dialog is open");
+            }
             let params = p.get("params").cloned().unwrap_or(json!({}));
             if let Some(authorize) = app.services.automation_command.as_ref()
                 && let Err(error) = authorize(id, &params)
@@ -290,6 +309,23 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     None => None,
                 };
                 let gradient_classic = bool_field(p, "gradientClassic")?;
+                // The Eyedropper's options bar (#1649): Sample Size, Sample, Show Sampling Ring.
+                let eyedropper_size = match p.get("eyedropperSampleSize") {
+                    Some(v) => Some(
+                        photocraft_engine::sample_cmds::size_param("ui.set", &json!({"size": v}))
+                            .map_err(|_| format!("eyedropperSampleSize must be \"point\" or one of {:?}", photocraft_engine::sample_cmds::SAMPLE_SIZES))?,
+                    ),
+                    None => None,
+                };
+                let eyedropper_sample = match p.get("eyedropperSample") {
+                    Some(v) => {
+                        let ids: Vec<&str> = photocraft_engine::sample_cmds::SampleLayers::ALL.iter().map(|(_, n)| *n).collect();
+                        let id = v.as_str().filter(|id| ids.contains(id)).ok_or_else(|| format!("eyedropperSample must be one of {}", ids.join(", ")))?;
+                        Some(id.to_string())
+                    }
+                    None => None,
+                };
+                let eyedropper_ring = bool_field(p, "eyedropperRing")?;
                 let panels = merged_object(&app.ui.panels, p.get("panels"), "panels")?;
                 let mask_target = bool_field(p, "maskTarget")?;
                 let vector_mask_target = bool_field(p, "vectorMaskTarget")?;
@@ -300,6 +336,10 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 let color_panel = whole_object(&app.ui.color_panel, p.get("colorPanel"), "colorPanel")?;
                 let dock_width = num_field(p, "dockWidth")?;
                 let zoom = num_field(p, "zoom")?;
+                let rotation = num_field(p, "rotation")?;
+                if rotation.is_some() && app.session.active_index().is_none() {
+                    return Err("no document open".into());
+                }
                 let center = match p.get("center") {
                     Some(v) => {
                         let a = v.as_array().ok_or_else(|| "center must be [x, y]".to_string())?;
@@ -363,6 +403,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 // Apply (nothing below can fail).
                 if let Some(t) = tool {
                     app.ui.tool = t;
+                    // Each tool keeps its own brush (#218), so switch it in before `brushSize`
+                    // below sets the new tool's size.
+                    crate::paint_mouse::sync_tool_brush(app);
                 }
                 let gradient_before = app.ui.tool_options.clone();
                 if let Some(mode) = gradient_blend {
@@ -373,6 +416,15 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 }
                 if gradient_blend.is_some() {
                     crate::gradient_ui::options_changed(app, &gradient_before);
+                }
+                if let Some(size) = eyedropper_size {
+                    app.ui.tool_options.eyedropper_size = size;
+                }
+                if let Some(id) = eyedropper_sample {
+                    app.ui.tool_options.eyedropper_sample = id;
+                }
+                if let Some(ring) = eyedropper_ring {
+                    app.ui.tool_options.eyedropper_ring = ring;
                 }
                 if let Some(v) = panels {
                     app.ui.panels = v;
@@ -405,7 +457,8 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 }
                 if let Some(i) = app.session.active_index() {
                     if let Some(z) = zoom {
-                        app.ui.views[i].zoom = (z as f32).clamp(0.01, 64.0);
+                        let size = app.session.documents().get(i).map_or([0, 0], |st| [st.doc.size.width, st.doc.size.height]);
+                        app.ui.views[i].zoom = crate::zoom_levels::clamp(z as f32, size);
                         app.ui.views[i].fit_pending = false;
                         app.ui.views[i].fill_pending = false;
                     }
@@ -417,6 +470,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     if fit {
                         app.ui.views[i].fit_pending = true;
                         app.ui.views[i].fill_pending = false;
+                    }
+                    if let Some(r) = rotation {
+                        app.ui.views[i].rotation = crate::rotate_view::wrap_deg(r as f32);
                     }
                 }
                 if let Some(k) = theme {
@@ -475,6 +531,34 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             }
             ok(json!({"dialog": app.ui.open_dialog(kind, fields)}))
         }
+        // The shell's own dialog (Window › Workspace, View › Pixel Aspect Ratio › Custom, Show
+        // Extras Options, 32-bit Preview Options), listed by ui.inspect with the id "shell".
+        "ui.dialog.set" if s("dialog") == Some(SHELL_DIALOG) => {
+            let Some(field) = s("field") else { return err("need `dialog` and `field`") };
+            let value = p.get("value").cloned().unwrap_or(Value::Null);
+            match app.ui.shell.dialog.as_mut() {
+                Some((_, fields)) => {
+                    fields.insert(field.to_string(), value);
+                    ok(Value::Null)
+                }
+                None => err("no shell dialog is open"),
+            }
+        }
+        "ui.dialog.confirm" if s("dialog") == Some(SHELL_DIALOG) => {
+            let Some((kind, fields)) = app.ui.shell.dialog.clone() else { return err("no shell dialog is open") };
+            if let Some((command, params)) = crate::workspace_ui::dialog_command(&kind, &fields)
+                && let Some(authorize) = app.services.automation_command.as_ref()
+                && let Err(error) = authorize(command, &params)
+            {
+                return err(error);
+            }
+            wrap(crate::workspace_ui::confirm(app, ctx))
+        }
+        "ui.dialog.apply" if s("dialog") == Some(SHELL_DIALOG) => err("`ui.dialog.apply` is for Preferences; use `ui.dialog.confirm`"),
+        "ui.dialog.cancel" if s("dialog") == Some(SHELL_DIALOG) => match app.ui.shell.dialog.take() {
+            Some(_) => ok(Value::Null),
+            None => err("no such dialog"),
+        },
         "ui.dialog.set" => {
             let (Some(id), Some(field)) = (u("dialog"), s("field")) else { return err("need `dialog` and `field`") };
             let value = p.get("value").cloned().unwrap_or(Value::Null);
@@ -626,13 +710,14 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 "middle" => egui::PointerButton::Middle,
                 _ => egui::PointerButton::Primary,
             };
+            let clicks = if req.method == "ui.click" { u("count").unwrap_or(1) } else { 0 };
+            if clicks > MAX_CLICKS {
+                return err(format!("`count` must be at most {MAX_CLICKS} (got {clicks})"));
+            }
             app.synthetic.push(egui::Event::PointerMoved(pos));
-            if req.method == "ui.click" {
-                let clicks = p.get("count").and_then(Value::as_u64).unwrap_or(1);
-                for _ in 0..clicks {
-                    app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: true, modifiers: Default::default() });
-                    app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: false, modifiers: Default::default() });
-                }
+            for _ in 0..clicks {
+                app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: true, modifiers: Default::default() });
+                app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: false, modifiers: Default::default() });
             }
             ctx.request_repaint();
             Outcome::AfterInput
@@ -733,8 +818,11 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
 /// Snapshot of everything on screen, addressable by id.
 pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
     let screen = ctx.content_rect();
-    let dialogs: Vec<Value> =
+    let mut dialogs: Vec<Value> =
         app.ui.dialogs.iter().map(|d| json!({"id": d.id, "kind": d.kind, "title": crate::dialogs::title(d), "fields": d.fields})).collect();
+    if let Some((kind, fields)) = &app.ui.shell.dialog {
+        dialogs.push(json!({"id": SHELL_DIALOG, "kind": kind, "title": crate::workspace_ui::title(kind), "fields": fields}));
+    }
     json!({
         "window": {"width": screen.width(), "height": screen.height(), "pixelsPerPoint": ctx.pixels_per_point()},
         "tool": app.ui.tool,
@@ -743,6 +831,10 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
         "textEdit": app.ui.text_edit,
         "typeTransform": app.ui.type_transform,
         "layerMenu": app.ui.layer_menu,
+        "brushPicker": app.ui.brush_picker.map(|pos| json!({
+            "pos": pos,
+            "list": app.ui.brush_picker_list,
+        })),
         "canvasToolMenu": app.ui.canvas_tool_menu.as_ref().map(|menu| {
             json!({
                 "pos": menu.pos,
@@ -754,6 +846,7 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
             })
         }),
         "panels": app.ui.panels,
+        "view": app.ui.view,
         "views": app.ui.views,
         "dialogs": dialogs,
         "windows": app.ui.windows,
@@ -817,6 +910,82 @@ mod tests {
     }
 
     #[test]
+    fn shell_dialogs_are_listed_and_driven_through_ui_dialog() {
+        // #1004: Window › Workspace and View dialogs live in `ui.shell.dialog`, and ui.inspect and
+        // ui.dialog.* only knew `ui.dialogs`.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let shell = |app: &mut PhotocraftApp| {
+            let v = call(app, &ctx, "ui.inspect", json!({}));
+            v["result"]["dialogs"].as_array().unwrap().iter().find(|d| d["id"] == "shell").cloned()
+        };
+        // Listed, then cancelled.
+        crate::menus::invoke(&mut app, &ctx, "window.workspace.newWorkspace", json!({})).unwrap();
+        let d = shell(&mut app).expect("the open shell dialog is listed");
+        assert_eq!((d["kind"].as_str(), d["title"].as_str()), (Some("newWorkspace"), Some("New Workspace")));
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": "shell"}))["ok"], true);
+        assert!(app.ui.shell.dialog.is_none() && shell(&mut app).is_none());
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": "shell"}))["ok"], false, "nothing left to cancel");
+        // A field set over control reaches OK.
+        crate::menus::invoke(&mut app, &ctx, "view.show.showExtrasOptions", json!({})).unwrap();
+        assert!(app.ui.view.show.notes);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.set", json!({"dialog": "shell", "field": "notes", "value": false}))["ok"], true);
+        assert_eq!(shell(&mut app).unwrap()["fields"]["notes"], false);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": "shell"}))["ok"], true);
+        assert!(!app.ui.view.show.notes && app.ui.shell.dialog.is_none());
+        // An OK that fails keeps the dialog open and says why.
+        crate::menus::invoke(&mut app, &ctx, "view.show.showExtrasOptions", json!({})).unwrap();
+        call(&mut app, &ctx, "ui.dialog.set", json!({"dialog": "shell", "field": "bogus", "value": true}));
+        let r = call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": "shell"}));
+        assert_eq!(r["ok"], false);
+        assert!(r["error"].as_str().unwrap_or("").contains("bogus"), "{r}");
+        assert!(app.ui.shell.dialog.is_some());
+        // Apply is Preferences-only; numeric ids still address ordinary dialogs only.
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.apply", json!({"dialog": "shell"}))["ok"], false);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": 0}))["ok"], false);
+        assert!(app.ui.shell.dialog.is_some());
+    }
+
+    #[test]
+    fn expired_queued_edit_does_not_run_and_a_live_retry_runs_once() {
+        use std::time::{Duration, Instant};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let before = app.session.active().unwrap();
+        let layers = before.doc.layers.len();
+        let steps = before.history.past_len();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app = app.with_control(rx);
+        let (mut expired, expired_reply) = ControlRequest::new("engine.execute", json!({"command": "layer.new.layer"}));
+        expired.deadline = Some(Instant::now() - Duration::from_secs(1));
+        tx.send(expired).unwrap();
+        let (mut retry, retry_reply) = ControlRequest::new("engine.execute", json!({"command": "layer.new.layer"}));
+        retry.deadline = Some(Instant::now() + Duration::from_secs(60));
+        tx.send(retry).unwrap();
+        app.drain_control(&egui::Context::default());
+        assert_eq!(expired_reply.try_recv().unwrap(), json!({"ok": false, "error": "timeout"}));
+        assert_eq!(retry_reply.try_recv().unwrap()["ok"], true);
+        let after = app.session.active().unwrap();
+        assert_eq!(after.doc.layers.len(), layers + 1, "only the live retry adds a layer");
+        assert_eq!(after.history.past_len(), steps + 1, "the expired edit adds no undo step");
+    }
+
+    #[test]
+    fn deadline_free_requests_run_even_after_the_receiver_is_dropped() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let layers = app.session.active().unwrap().doc.layers.len();
+        let (tx, rx) = std::sync::mpsc::channel();
+        app = app.with_control(rx);
+        let (req, reply) = ControlRequest::new("engine.execute", json!({"command": "layer.new.layer"}));
+        assert!(req.deadline.is_none());
+        drop(reply);
+        tx.send(req).unwrap();
+        app.drain_control(&egui::Context::default());
+        assert_eq!(app.session.active().unwrap().doc.layers.len(), layers + 1);
+    }
+
+    #[test]
     fn right_pointer_opens_agent_visible_selection_menu() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
@@ -868,6 +1037,19 @@ mod tests {
     }
 
     #[test]
+    fn ui_inspect_reports_the_view_preferences() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let before = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert_eq!(before.pointer("/result/view/show/selection_edges"), Some(&json!(true)));
+        assert_eq!(before.pointer("/result/view/screen_mode"), Some(&json!("standard")));
+        assert_eq!(call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "view.show.selectionEdges"}))["ok"], true);
+        let after = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert_eq!(after.pointer("/result/view/show/selection_edges"), Some(&json!(false)));
+        assert_eq!(after["result"]["view"], json!(app.ui.view));
+    }
+
+    #[test]
     fn engine_execute_runs_with_defaults_but_menu_invoke_opens_the_dialog() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
@@ -881,6 +1063,38 @@ mod tests {
         let r = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "filter.blur.gaussianBlur"}));
         assert!(r.to_string().contains("dialog"), "ui.menu.invoke should open the dialog: {r}");
         assert_eq!(app.session.active().unwrap().revision, rev, "opening a dialog must not edit the document");
+    }
+
+    #[test]
+    fn menu_invoke_cannot_edit_document_behind_an_open_dialog() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+
+        let opened = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.imageSize"}));
+        assert_eq!(opened["ok"], true, "{opened}");
+        let dialog = opened["result"]["dialog"].as_u64().unwrap();
+        let revision = app.session.active().unwrap().revision;
+        let before = call(&mut app, &ctx, "ui.inspect", json!({}));
+        let fields = before["result"]["dialogs"][0]["fields"].clone();
+
+        for params in [json!({"id": "image.imageRotation.90cw"}), json!({"id": "image.imageRotation.90cw", "params": {}})] {
+            let blocked = call(&mut app, &ctx, "ui.menu.invoke", params);
+            assert_eq!(blocked["ok"], false, "{blocked}");
+            assert_eq!(app.session.active().unwrap().revision, revision);
+            let snapshot = call(&mut app, &ctx, "ui.inspect", json!({}));
+            assert_eq!(snapshot["result"]["dialogs"][0]["id"], dialog);
+            assert_eq!(snapshot["result"]["dialogs"][0]["fields"], fields);
+        }
+
+        // View navigation stays permitted by the same policy as native menus and shortcuts.
+        assert!(crate::menus::modal_allows(&app, "view.zoomIn"));
+        assert!(!crate::menus::modal_allows(&app, "image.imageRotation.90cw"));
+
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": dialog}))["ok"], true);
+        let rotated = call(&mut app, &ctx, "ui.menu.invoke", json!({"id": "image.imageRotation.90cw"}));
+        assert_eq!(rotated["ok"], true, "{rotated}");
+        assert!(app.session.active().unwrap().revision > revision);
     }
 
     #[test]
@@ -919,6 +1133,37 @@ mod tests {
     }
 
     #[test]
+    fn ui_set_drives_the_eyedropper_options() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let good = call(
+            &mut app,
+            &ctx,
+            "ui.set",
+            json!({"tool": "eyedropper", "eyedropperSampleSize": 11, "eyedropperSample": "currentAndBelow", "eyedropperRing": false}),
+        );
+        assert_eq!(good["ok"], true, "{good}");
+        let o = &app.ui.tool_options;
+        assert_eq!((o.eyedropper_size, o.eyedropper_sample.as_str(), o.eyedropper_ring), (11, "currentAndBelow", false));
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"eyedropperSampleSize": "point"}))["ok"], true);
+        assert_eq!(app.ui.tool_options.eyedropper_size, 1);
+        for bad in [
+            json!({"eyedropperSampleSize": 4}),
+            json!({"eyedropperSampleSize": "big"}),
+            json!({"eyedropperSample": "below"}),
+            json!({"eyedropperSample": 2}),
+            json!({"eyedropperRing": "yes"}),
+        ] {
+            let r = call(&mut app, &ctx, "ui.set", bad.clone());
+            assert_eq!(r["ok"], false, "{bad}: {r}");
+        }
+        // A rejected call applies none of its fields.
+        let r = call(&mut app, &ctx, "ui.set", json!({"eyedropperSampleSize": 101, "eyedropperSample": "nope"}));
+        assert_eq!(r["ok"], false, "{r}");
+        assert_eq!(app.ui.tool_options.eyedropper_size, 1);
+    }
+
+    #[test]
     fn ui_set_opens_the_brush_preset_picker_and_sets_its_view() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
@@ -933,6 +1178,40 @@ mod tests {
         assert_eq!(app.ui.brush_picker, Some([120.0, 80.0]), "a bad value leaves the picker alone");
         assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPicker": null}))["ok"], true);
         assert_eq!(app.ui.brush_picker, None);
+    }
+
+    #[test]
+    fn ui_inspect_tracks_brush_picker_open_and_closed() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 128, "height": 128})).unwrap();
+
+        let closed = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert!(closed["result"]["brushPicker"].is_null());
+
+        // A right-click on the canvas with Brush opens the same picker as the options bar.
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"tool": "brush"}))["ok"], true);
+        let click = call(
+            &mut app,
+            &ctx,
+            "ui.pointer",
+            json!({
+                "button": "right",
+                "events": [{"kind": "down", "x": 64, "y": 64}, {"kind": "up", "x": 64, "y": 64}]
+            }),
+        );
+        assert_eq!(click["ok"], true, "{click}");
+        let open = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert!(open["result"]["brushPicker"]["pos"].is_array(), "{open}");
+        assert_eq!(open["result"]["brushPicker"]["list"]["view"], "grid");
+
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPickerView": "list"}))["ok"], true);
+        let changed = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert_eq!(changed["result"]["brushPicker"]["list"]["view"], "list");
+
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"brushPicker": null}))["ok"], true);
+        let closed_again = call(&mut app, &ctx, "ui.inspect", json!({}));
+        assert!(closed_again["result"]["brushPicker"].is_null());
     }
 
     #[test]
@@ -1032,6 +1311,16 @@ mod tests {
             assert_eq!(app.session.tools.brush.size, 42.5);
             assert_eq!(app.session.journal.len(), journal_len);
         }
+
+        // Each tool keeps its own brush (#218), so `tool` + `brushSize` in one call sets the new
+        // tool's size rather than the one it was carrying.
+        call(&mut app, &ctx, "ui.set", json!({"tool": "eraser", "brushSize": 12.0}));
+        assert_eq!(app.session.tools.brush.size, 12.0, "the Eraser's own size");
+        call(&mut app, &ctx, "ui.set", json!({"tool": "brush"}));
+        assert_eq!(app.session.tools.brush.size, 42.5, "the Brush gets its own back");
+        call(&mut app, &ctx, "ui.set", json!({"tool": "eraser"}));
+        assert_eq!(app.session.tools.brush.size, 12.0);
+        call(&mut app, &ctx, "ui.set", json!({"tool": "brush", "brushSize": 42.5}));
 
         // Values that cannot be represented by BrushSettings must report the command error and
         // leave both the brush and journal unchanged instead of mutating tool state directly.
@@ -1163,6 +1452,140 @@ mod tests {
         }
     }
 
+    fn deny_smart_object_paths(id: &str, params: &Value) -> photocraft_engine::Result<()> {
+        // The production policy lives in the automation crate. This gate exercises the control
+        // session's state-derived path check without adding that dependency to the UI crate.
+        if matches!(id, "layer.smartObjects.editContents" | "layer.smartObjects.convertToLayers" | "layer.smartObjects.saveContents")
+            && params.get("path").and_then(Value::as_str).is_some()
+        {
+            Err(photocraft_engine::EngineError::Other("ambient smart-object path denied".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn smart_control_app() -> (PhotocraftApp, egui::Context, photocraft_doc::LayerId) {
+        let services = crate::Services {
+            automation_authorize: Some(deny_smart_object_paths),
+            automation_command: Some(Box::new(|id, params| deny_smart_object_paths(id, params).map_err(|e| e.to_string()))),
+            ..Default::default()
+        };
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+        app.run("file.new", json!({"width": 8, "height": 6, "background": "transparent"})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        let id = app.run("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        (app, egui::Context::default(), photocraft_doc::LayerId(id))
+    }
+
+    #[test]
+    fn control_edits_nested_embedded_smart_objects_and_converts_an_explicit_target() {
+        use photocraft_doc::{LayerContent, SmartSource};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::sync::Arc;
+
+        let (mut app, ctx, smart) = smart_control_app();
+        // Embed this one-smart-layer document inside the outer object: two Edit Contents
+        // requests must reach the raster layer, as in a nested product-photo template.
+        let nested = photocraft_engine::smart_cmds::encode_source(&app.session.active().unwrap().doc).unwrap();
+        app.session
+            .edit("Nested fixture", |doc, _| {
+                let LayerContent::Smart(sm) = &mut doc.layer_mut(smart).unwrap().content else { panic!("smart fixture") };
+                sm.source = SmartSource::Embedded { file_name: "product.pcraft".into(), bytes: Arc::new(nested) };
+                Ok(())
+            })
+            .unwrap();
+        let other = app.run("layer.new.layer", json!({"name": "Unrelated"})).unwrap()["layer"].as_u64().unwrap();
+        assert_ne!(app.session.active().unwrap().active_layer, Some(smart));
+        for expected_document in [1, 2] {
+            let r = call(&mut app, &ctx, "engine.execute", json!({"command": "layer.smartObjects.editContents", "params": {"layer": smart.0}}));
+            assert_eq!(r["ok"], true, "{r}");
+            assert_eq!(r["result"]["document"], expected_document, "{r}");
+            assert!(app.session.active().unwrap().path.is_none(), "contents open in memory");
+            assert!(app.session.authorize.is_none(), "the request gate must not remain installed");
+        }
+        let r = call(&mut app, &ctx, "engine.execute", json!({"command": "edit.fill", "params": {"color": "#0000ff"}}));
+        assert_eq!(r["ok"], true, "{r}");
+        for expected_documents in [2, 1] {
+            let r = call(&mut app, &ctx, "engine.execute", json!({"command": "layer.smartObjects.saveContents"}));
+            assert_eq!(r["ok"], true, "{r}");
+            let r = call(&mut app, &ctx, "engine.execute", json!({"command": "file.close"}));
+            assert_eq!(r["ok"], true, "{r}");
+            assert_eq!(app.session.documents().len(), expected_documents);
+        }
+        assert_eq!(app.session.active().unwrap().active_layer, Some(photocraft_doc::LayerId(other)));
+        assert_eq!(photocraft_compose::flatten(&app.session.active().unwrap().doc).px[0], [0.0, 0.0, 1.0, 1.0]);
+        let r = call(&mut app, &ctx, "engine.execute", json!({"command": "layer.smartObjects.convertToLayers", "params": {"layer": smart.0}}));
+        assert_eq!(r["ok"], true, "{r}");
+        assert!(app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(other)).is_some(), "the unrelated active layer remains");
+        assert!(app.session.authorize.is_none());
+
+        let written = Rc::new(RefCell::new(Vec::new()));
+        let output = written.clone();
+        app.services.export =
+            Some(Box::new(|doc, _, _| photocraft_engine::smart_cmds::encode_source(doc).map(|bytes| (bytes, Vec::new())).map_err(|e| e.to_string())));
+        app.services.automation_write = Some(Box::new(move |path, bytes| {
+            output.borrow_mut().push((path.to_string(), bytes.to_vec()));
+            Ok(())
+        }));
+        app.services.write = Some(Box::new(|_, _| Err("ambient writer used".into())));
+        let r = call(&mut app, &ctx, "app.save", json!({"path": "out/template.pcraft"}));
+        assert_eq!(r["ok"], true, "{r}");
+        let written = written.borrow();
+        assert_eq!(written.len(), 1);
+        assert_eq!(written[0].0, "out/template.pcraft");
+        let saved = photocraft_engine::smart_cmds::decode_source(&written[0].0, &written[0].1).unwrap();
+        assert_eq!(photocraft_compose::flatten(&saved).px[0], [0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn control_refuses_linked_smart_objects_in_commands_and_actions_but_local_editing_still_works() {
+        use photocraft_doc::{LayerContent, SmartSource};
+        use std::sync::Arc;
+
+        let (mut app, ctx, smart) = smart_control_app();
+        let path = std::env::temp_dir().join(format!("pc-control-smart-linked-{}.pcraft", std::process::id()));
+        let st = app.session.active().unwrap();
+        let LayerContent::Smart(sm) = &st.doc.layer(smart).unwrap().content else { panic!("smart fixture") };
+        let SmartSource::Embedded { bytes, .. } = &sm.source else { panic!("embedded fixture") };
+        std::fs::write(&path, bytes.as_slice()).unwrap();
+        app.session
+            .edit("Linked fixture", |doc, _| {
+                let LayerContent::Smart(sm) = &mut doc.layer_mut(smart).unwrap().content else { panic!("smart fixture") };
+                sm.source = SmartSource::Linked { path: path.to_string_lossy().into_owned() };
+                Ok(())
+            })
+            .unwrap();
+        app.run("layer.new.layer", json!({"name": "Unrelated"})).unwrap();
+        let before = app.session.active().unwrap().doc.clone();
+        let active = app.session.active().unwrap().active_layer;
+        for command in ["layer.smartObjects.editContents", "layer.smartObjects.convertToLayers"] {
+            let r = call(&mut app, &ctx, "engine.execute", json!({"command": command, "params": {"layer": smart.0}}));
+            assert_eq!(r["ok"], false, "{r}");
+            assert!(r["error"].as_str().unwrap().contains("ambient smart-object path denied"), "{r}");
+            app.session.actions.list =
+                vec![photocraft_engine::actions_cmds::Action { name: "Linked contents".into(), steps: vec![(command.into(), json!({"layer": smart.0}))] }];
+            let r = call(&mut app, &ctx, "engine.execute", json!({"command": "actions.play", "params": {"action": "Linked contents"}}));
+            assert_eq!(r["ok"], true, "{r}");
+            assert_eq!(r["result"]["ran"], 0, "{r}");
+            assert_eq!(r["result"]["failed"]["id"], command, "{r}");
+            assert_eq!(app.session.documents().len(), 1);
+            assert!(Arc::ptr_eq(&app.session.active().unwrap().doc, &before), "a refused operation must not edit the document");
+            assert_eq!(app.session.active().unwrap().active_layer, active);
+            assert!(app.session.authorize.is_none(), "a refused request must restore the local session");
+        }
+        // A synthetic thumbnail action uses the same temporary authorization as control calls.
+        app.automation_input = true;
+        let error = crate::menus::invoke(&mut app, &ctx, "layer.smartObjects.editContents", json!({"layer": smart.0})).unwrap_err();
+        assert!(error.contains("ambient smart-object path denied"), "{error}");
+        assert!(app.session.authorize.is_none());
+        app.automation_input = false;
+        app.run("layer.smartObjects.editContents", json!({"layer": smart.0})).unwrap();
+        assert_eq!(app.session.documents().len(), 2, "a human can still open the existing linked file");
+        assert_eq!(photocraft_compose::flatten(&app.session.active().unwrap().doc).px[0], [1.0, 0.0, 0.0, 1.0]);
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     fn actions_play_checks_each_step_over_control() {
         let services = crate::Services { automation_authorize: Some(deny_ambient_file), ..Default::default() };
@@ -1201,5 +1624,29 @@ mod tests {
         app.session.execute("file.new", json!({"width": 4, "height": 4})).unwrap();
         let r = app.run("actions.play", json!({"action": "Open"})).unwrap();
         assert_eq!(r["ran"], 1, "{r}");
+    }
+
+    #[test]
+    fn huge_click_count_is_rejected() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        // #982: a huge count used to queue a press and a release per click before replying.
+        for count in [json!(MAX_CLICKS + 1), json!(1_000_000_000u64), json!(u64::MAX)] {
+            let r = call(&mut app, &ctx, "ui.click", json!({"x": 10, "y": 10, "count": count}));
+            assert_eq!(r["ok"], false, "{r}");
+            assert!(r["error"].as_str().unwrap().contains("`count` must be at most 256"), "{r}");
+            assert!(app.synthetic.is_empty(), "a rejected click queues nothing");
+        }
+        // Single, double and the largest allowed clicks still queue a move plus a press and a release each.
+        for (count, events) in [(None, 3), (Some(2), 5), (Some(MAX_CLICKS), 2 * MAX_CLICKS as usize + 1)] {
+            let params = match count {
+                Some(n) => json!({"x": 10, "y": 10, "count": n}),
+                None => json!({"x": 10, "y": 10}),
+            };
+            let (req, _rx) = ControlRequest::new("ui.click", params);
+            assert!(matches!(handle(&mut app, &ctx, &req), Outcome::AfterInput));
+            assert_eq!(app.synthetic.len(), events);
+            app.synthetic.clear();
+        }
     }
 }

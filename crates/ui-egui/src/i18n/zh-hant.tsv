@@ -25,6 +25,10 @@
 	Layer	圖層
 	Type	文字
 	Select	選取
+	Top Left	左上
+	Top Right	右上
+	Bottom Left	左下
+	Bottom Right	右下
 	Filter	濾鏡
 	View	檢視
 	Window	視窗
@@ -983,6 +987,7 @@
 	Native file drag-and-drop is unavailable	Wayland 不支援原生檔案拖放
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Wayland 尚未支援原生檔案拖放。請使用「檔案 › 開啟」，或在檔案管理員中複製影像後使用 {paste} 貼上。
 	To drop files, start PhotoCraft under XWayland: `{command}`	若要拖放檔案，請在 XWayland 下啟動 PhotoCraft：`{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	或將 偏好設定 › 效能 › Linux 顯示伺服器 設為 X11：PhotoCraft 之後一律在 XWayland 下啟動。
 	Edit › Paste	「編輯 › 貼上」
 	Duplicate Layers…	複製圖層…
 	Duplicate style	複製樣式
@@ -1393,6 +1398,9 @@
 	Stroke	筆畫
 	Stroke Catch-up	筆畫追補
 	Stroke:	筆畫：
+	Location	位置
+	Location:	位置：
+	Preserve Transparency	保留透明區域
 	Style	樣式
 	Style Options	樣式選項
 	Style Options…	樣式選項…
@@ -1471,6 +1479,10 @@
 	↑↓ navigate   {key} run   esc close	↑↓ 瀏覽   {key} 執行   esc 關閉
 	Version {version}	版本 {version}
 	New Document	新增文件
+	Saved	已儲存
+	Save Preset…	儲存預設…
+	Preset Name	預設集名稱
+	No saved presets yet.	尚無已儲存的預設集。
 	Error	錯誤
 	Command	指令
 	Adjustment layers have nothing to transform	調整圖層沒有可變形的內容
@@ -2002,6 +2014,8 @@
 	CPU (no GPU acceleration)	CPU (無 GPU 加速)
 	DirectX 12	DirectX 12
 	GPU backend	GPU 後端
+	Linux display server	Linux 顯示伺服器
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	使用繪圖板壓力
@@ -2061,6 +2075,7 @@ cameraRaw	Blending	混合
 	Patch Tool	修補工具
 	Patch:	修補：
 	Lasso around an area, then drag the selection	用套索圈出區域，然後拖曳選取範圍
+	Now drag the selection onto another area	現在將選取範圍拖曳到另一個區域
 	Edit Type	編輯文字
 
 
@@ -2140,6 +2155,14 @@ cameraRaw	Blending	混合
 	Channels:	色版:
 	Knockout	去底色
 	Apply At Canvas Bounds	套用效果至版面邊界
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	檢色器（文字顏色）
+	Pick screen color	選取螢幕顏色
+	Sample a pixel anywhere on the screen	在螢幕任意位置取樣像素
+	Click to pick · Esc to cancel	按一下選取 · Esc 取消
+	Pick a screen pixel or press Esc to cancel	選取螢幕像素或按 Esc 取消
+	Scroll to zoom	捲動以縮放
 	Show/Hide All Panels	顯示/隱藏所有面板
 	Show/Hide Panels	顯示/隱藏面板
 	Could not open	無法開啟
@@ -2202,3 +2225,32 @@ fontWeight	Italic	斜體
 	Pattern Stamp Tool	圖案圖章工具
 	Pattern Stamp	圖案圖章
 	Impressionist	印象派
+	Rotate View	旋轉檢視
+	Rotate View Tool	旋轉檢視工具
+	Reset View	重設檢視
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	繞中心拖曳以旋轉檢視  ·  Shift 限制為 15°
+
+# Painting symmetry presets.
+	Dual Axis	雙軸
+	Diagonal	對角線
+	Transform Symmetry	變形對稱軸
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	取樣點
+	3 by 3 Average	3 × 3 平均
+	5 by 5 Average	5 × 5 平均
+	11 by 11 Average	11 × 11 平均
+	31 by 31 Average	31 × 31 平均
+	51 by 51 Average	51 × 51 平均
+	101 by 101 Average	101 × 101 平均
+	Sample Size:	取樣大小：
+	All Layers No Adjustments	所有圖層（不含調整）
+	Current & Below No Adjustments	目前及以下（不含調整）
+	Show Sampling Ring	顯示取樣環
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	超出列印色域：按一下以使用最接近的可列印顏色
+	Not a web colour: click for the nearest web colour	不是網頁顏色：按一下以使用最接近的網頁顏色
+	Color to Alpha…	顏色轉為 Alpha…
+	Transparency Threshold	透明度臨界值
+	Opacity Threshold	不透明度臨界值

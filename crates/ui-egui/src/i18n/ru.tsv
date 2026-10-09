@@ -24,6 +24,10 @@
 	Layer	Слой
 	Type	Текст
 	Select	Выделение
+	Top Left	Верхний левый
+	Top Right	Верхний правый
+	Bottom Left	Нижний левый
+	Bottom Right	Нижний правый
 	Filter	Фильтр
 	View	Просмотр
 	Window	Окно
@@ -1391,6 +1395,7 @@
 	Native file drag-and-drop is unavailable	Нативное перетаскивание файлов в Wayland недоступно
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Нативное перетаскивание файлов в Wayland пока не поддерживается. Откройте файл через Файл › Открыть или скопируйте изображение в файловом менеджере и вставьте его с помощью {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Чтобы перетаскивать файлы, запустите PhotoCraft в XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	Или выберите в Настройки › Производительность › Дисплейный сервер Linux значение X11: PhotoCraft будет всегда запускаться в XWayland.
 	Edit › Paste	Редактирование › Вставить
 	Photo	Фото
 	Print	Печать
@@ -1448,7 +1453,6 @@
 	Cancel transform (Esc)	Отменить трансформацию (Esc)
 	Cancel warp (Esc)	Отменить деформацию (Esc)
 	Do you want to save the changes you made to “{name}” before closing?	Сохранить изменения в документе «{name}» перед закрытием?
-	Do you want to save you made to “{name}” before quitting?	Сохранить изменения в документе «{name}» перед выходом?
 	Revert “{name}” to the last saved version? Your changes will be lost.	Вернуть «{name}» к последней сохранённой версии? Изменения будут потеряны.
 	{key} to subtract	{key} — вычесть
 	↑↓ navigate   {key} run   esc close	↑↓ переход   {key} выполнить   esc закрыть
@@ -1663,6 +1667,8 @@
 	Divide	Разделить
 	Result	Результат
 	New Document	Новый документ
+	Preset Name	Имя набора
+	No saved presets yet.	Сохранённых наборов пока нет.
 	New Channel	Новый канал
 	Selection	Выделение
 	Save Selection	Сохранить выделение
@@ -2087,6 +2093,9 @@
 	Stroke	Мазок
 	Stroke Catch-up	Догонять мазком
 	Stroke:	Обводка:
+	Location:	Расположение:
+	Inside	Внутри
+	Outside	Снаружи
 	Tetrahedral	Тетраэдрическая
 	Texture Each Tip	Текстура на каждый отпечаток
 	The current gradient (pick one in Window › Gradients)	Текущий градиент (выберите в Окно › Градиенты)
@@ -2174,6 +2183,8 @@
 	Font preview	Предпросмотр шрифтов
 	Full size tip	Весь диаметр кисти
 	GPU backend	Бэкенд GPU
+	Linux display server	Дисплейный сервер Linux
+	X11	X11
 	Gamut warning color	Цвет предупреждения об охвате
 	Gamut warning opacity	Непрозрачность предупреждения об охвате
 	General	Основные
@@ -2362,6 +2373,7 @@ cameraRaw	Roughness	Неровность
 	Patch Tool	Заплатка
 	Patch:	Заплатка:
 	Lasso around an area, then drag the selection	Обведите область лассо, затем перетащите выделение
+	Now drag the selection onto another area	Теперь перетащите выделение на другую область
 	Edit Type	Редактировать текст
 
 
@@ -2440,6 +2452,14 @@ cameraRaw	Roughness	Неровность
 	Channels:	Каналы:
 	Knockout	Просвечивание
 	Apply At Canvas Bounds	Применить эффект на границах холста
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	Палитра цветов (Цвет текста)
+	Pick screen color	Выбрать цвет на экране
+	Sample a pixel anywhere on the screen	Выберите пиксель в любом месте экрана
+	Click to pick · Esc to cancel	Щелчок — выбрать · Esc — отменить
+	Pick a screen pixel or press Esc to cancel	Выберите пиксель на экране или нажмите Esc для отмены
+	Scroll to zoom	Колесо — изменить масштаб
 	Show/Hide All Panels	Показать/скрыть все панели
 	Show/Hide Panels	Показать/скрыть панели
 	Could not open	Не удалось открыть
@@ -2500,3 +2520,33 @@ fontWeight	Italic	Курсив
 # Pattern Stamp tool
 	Pattern Stamp Tool	Инструмент узорный штамп
 	Impressionist	Импрессионист
+	Rotate View Tool	Инструмент поворота вида
+	Reset View	Сбросить вид
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Перетащите вокруг центра, чтобы повернуть вид  ·  Shift фиксирует шаг 15°
+
+# Painting symmetry presets.
+	Dual Axis	Две оси
+	Diagonal	Диагональная
+	Transform Symmetry	Трансформировать симметрию
+	Set painting symmetry options	Настроить параметры симметричного рисования
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Точечная выборка
+	3 by 3 Average	Среднее 3 × 3
+	5 by 5 Average	Среднее 5 × 5
+	11 by 11 Average	Среднее 11 × 11
+	31 by 31 Average	Среднее 31 × 31
+	51 by 51 Average	Среднее 51 × 51
+	101 by 101 Average	Среднее 101 × 101
+	Sample Size:	Размер выборки:
+	All Layers No Adjustments	Все слои без коррекции
+	Current & Below No Adjustments	Текущий и ниже без коррекции
+	Show Sampling Ring	Показать кольцо выборки
+	Click to sample the foreground colour  ·  {key}-click for background	Клик — взять основной цвет  ·  {key}-клик — фоновый цвет
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Вне цветового охвата печати: щёлкните, чтобы выбрать ближайший печатаемый цвет
+	Not a web colour: click for the nearest web colour	Не веб-цвет: щёлкните, чтобы выбрать ближайший веб-цвет
+	Color to Alpha…	Цвет в альфа-канал…
+	Transparency Threshold	Порог прозрачности
+	Opacity Threshold	Порог непрозрачности

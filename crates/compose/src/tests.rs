@@ -76,7 +76,10 @@ fn every_blend_mode_matches_reference_on_opaque_pixels() {
         top.blend = mode;
         d.layers = vec![bottom, top];
         let got = px(&d, 0, 0);
+        // A 32-bit document: Add / Divide don't clip at 1 (Divide gives 0.6 / 0.2 = 3 in red).
+        psblend::HDR.with(|h| h.set(true));
         let want = blend::blend_rgb(mode, [0.6, 0.3, 0.2], [0.2, 0.7, 0.5]);
+        psblend::HDR.with(|h| h.set(false));
         for i in 0..3 {
             assert!((got[i] - want[i]).abs() < 1e-5, "{mode:?}: {got:?} vs {want:?}");
         }
@@ -373,6 +376,50 @@ fn sixteen_bit_and_float_layers_composite() {
     }
 }
 
+/// `top` blended with `mode` over an opaque `bg`, both solid, in a 4×4 RGB document of `depth`.
+fn two_solid_layers(depth: SampleType, mode: BlendMode, bg: [f32; 3], top: [f32; 3]) -> Document {
+    let mut d = Document::new("hdr", Size::new(4, 4), ColorMode::Rgb, depth);
+    let fmt = d.pixel_format();
+    let mut b = Layer::raster("bg", fmt);
+    b.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 4, 4), &photocraft_raster::from_rgba(&fmt, [bg[0], bg[1], bg[2], 1.0]));
+    let mut t = Layer::raster("top", fmt);
+    t.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 4, 4), &photocraft_raster::from_rgba(&fmt, [top[0], top[1], top[2], 1.0]));
+    t.blend = mode;
+    d.layers.push(b);
+    d.layers.push(t);
+    d
+}
+
+#[test]
+fn float_documents_add_and_divide_past_white() {
+    // 32-bit: Linear Dodge (Add) and Divide keep HDR values (adding light never darkens).
+    let (bg, top) = ([2.0, 0.5, 4.0], [0.5, 0.25, 0.5]);
+    for (mode, want) in [(BlendMode::LinearDodge, [2.5, 0.75, 4.5]), (BlendMode::Divide, [4.0, 2.0, 8.0]), (BlendMode::Multiply, [1.0, 0.125, 2.0])] {
+        let d = two_solid_layers(SampleType::F32, mode, bg, top);
+        for buf in [flatten(&d), render_tiled(&d, d.bounds(), 2)] {
+            for p in &buf.px {
+                assert!(close4(*p, [want[0], want[1], want[2], 1.0]), "{mode:?}: {p:?}");
+            }
+        }
+    }
+    // The flag doesn't leak into later renders on this thread.
+    let d = two_solid_layers(SampleType::U16, BlendMode::LinearDodge, [0.8, 0.5, 0.6], top);
+    assert!(close4(flatten(&d).px[0], [1.0, 0.75, 1.0, 1.0]));
+}
+
+#[test]
+fn integer_documents_clip_add_and_divide_at_white() {
+    let (bg, top) = ([0.8, 0.5, 0.6], [0.5, 0.25, 0.5]);
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let f32_doc = depth == SampleType::F32;
+        for (mode, clipped, hdr) in [(BlendMode::LinearDodge, [1.0, 0.75, 1.0], [1.3, 0.75, 1.1]), (BlendMode::Divide, [1.0, 1.0, 1.0], [1.6, 2.0, 1.2])] {
+            let want = if f32_doc { hdr } else { clipped };
+            let p = flatten(&two_solid_layers(depth, mode, bg, top)).px[5];
+            assert!(close4(p, [want[0], want[1], want[2], 1.0]), "{mode:?} {depth:?}: {p:?}");
+        }
+    }
+}
+
 #[test]
 fn thumbnail_dimensions() {
     let d = doc_white(400, 200);
@@ -567,6 +614,17 @@ fn outer_and_inner_glow_regions() {
     let edge = px(&d, 10, 20);
     assert!(edge[1] > 0.3, "{edge:?}");
     assert!(close4(px(&d, 20, 20), [1.0, 0.0, 0.0, 1.0]));
+    assert!(close4(px(&d, 5, 20), [1.0; 4]));
+}
+
+// A Precise inner glow from the centre is brightest in the middle and fades towards the edge,
+// like the Softer one; it used to paint nothing at all (#966).
+#[test]
+fn precise_inner_glow_from_center_paints_the_middle() {
+    let d = fx_doc(vec![Effect::InnerGlow(glow(GlowTechnique::Precise, GlowSource::Center))]);
+    let (center, edge) = (px(&d, 20, 20), px(&d, 10, 20));
+    assert!(center[1] > 0.9 && center[0] < 0.1, "green in the middle: {center:?}");
+    assert!(edge[0] > center[0] && edge[1] < center[1], "fades towards the edge: {edge:?} vs {center:?}");
     assert!(close4(px(&d, 5, 20), [1.0; 4]));
 }
 
@@ -1405,7 +1463,7 @@ fn reference_reduce(doc: &Document, w: usize, h: usize) -> Vec<[f32; 4]> {
 fn reduced_render_matches_the_full_composite_averaged() {
     let d = tall_doc(53, 1000);
     for (w, h, band) in [(10, 190, 0), (7, 33, 256), (53, 999, 512), (1, 1, 256)] {
-        let got = render_reduced_in_bands(&d, w, h, None, band);
+        let got = render_reduced_in_bands(&d, d.bounds(), w, h, None, band);
         assert_eq!((got.rect.width(), got.rect.height()), (w, h));
         assert_eq!(got.px, reference_reduce(&d, w as usize, h as usize), "{w}x{h} band {band}");
     }
@@ -1421,9 +1479,9 @@ fn reduced_damage_matches_the_whole_reduction() {
     // whole reduction's, for uneven factors, damage on span edges and bands smaller than the area.
     let d = tall_doc(53, 1000);
     for (w, h, band) in [(10, 190, 0), (7, 33, 256), (53, 999, 64), (53, 1000, 0), (1, 1, 256)] {
-        let all = render_reduced_in_bands(&d, w, h, None, band);
+        let all = render_reduced_in_bands(&d, d.bounds(), w, h, None, band);
         for dmg in [Rect::new(0, 0, 1, 1), Rect::new(5, 17, 6, 18), Rect::new(12, 300, 40, 701), Rect::new(-9, 990, 80, 2000), Rect::new(0, 0, 53, 1000)] {
-            let part = render_reduced_in_bands(&d, w, h, Some(dmg), band);
+            let part = render_reduced_in_bands(&d, d.bounds(), w, h, Some(dmg), band);
             let r = part.rect;
             assert!(!r.is_empty() && r.x0 >= 0 && r.y0 >= 0 && r.x1 as u32 <= w && r.y1 as u32 <= h, "{w}x{h} {dmg:?} -> {r:?}");
             for y in r.y0..r.y1 {
@@ -1442,8 +1500,38 @@ fn reduced_damage_matches_the_whole_reduction() {
                 }
             }
         }
-        assert!(render_reduced_in_bands(&d, w, h, Some(Rect::new(60, 0, 70, 10)), band).rect.is_empty());
+        assert!(render_reduced_in_bands(&d, d.bounds(), w, h, Some(Rect::new(60, 0, 70, 10)), band).rect.is_empty());
     }
+}
+
+#[test]
+fn reduced_render_of_an_area_past_the_canvas() {
+    // The Crop tool shows layer pixels beyond the canvas: rendered in place, they must equal the
+    // same pixels on a canvas that holds them (adjustment layers apply out there too).
+    let paint = |d: &mut Document, dx: i32, dy: i32| {
+        let mut l = Layer::raster("big", PixelFormat::RGBA8);
+        let s = l.surface_mut().unwrap();
+        for y in -10..40 {
+            for x in -20..60 {
+                let a = if x < 0 || y >= 30 { 0.6 } else { 1.0 };
+                s.fill_rect(Rect::new(x + dx, y + dy, x + dx + 1, y + dy + 1), &[(x + 20) as f32 / 80.0, (y + 10) as f32 / 50.0, 0.5, a]);
+            }
+        }
+        d.layers.push(l);
+        d.layers.push(Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert)));
+    };
+    let mut d = Document::new("d", Size::new(40, 30), ColorMode::Rgb, SampleType::U8);
+    paint(&mut d, 0, 0);
+    let mut whole = Document::new("w", Size::new(80, 50), ColorMode::Rgb, SampleType::U8);
+    paint(&mut whole, 20, 10);
+    let area = Rect::new(-20, -10, 60, 40);
+    for (w, h) in [(80, 50), (8, 5), (27, 13), (1, 1)] {
+        let got = render_reduced_rect(&d, area, w, h);
+        assert_eq!(got.rect, Rect::new(0, 0, w as i32, h as i32));
+        assert_eq!(got.px, render_reduced(&whole, w, h).px, "{w}x{h}");
+    }
+    // Past every layer there is nothing to show.
+    assert!(render_reduced_rect(&d, Rect::new(100, 100, 120, 110), 20, 10).px.iter().all(|p| p[3] == 0.0));
 }
 
 #[test]
@@ -1563,6 +1651,26 @@ fn photo_filter_matches_photoshop() {
     for (v, ps) in [([0.2159, 0.2159, 0.2159], [66.0, 53.0, 40.0]), ([1.0, 1.0, 0.0], [255.0, 251.0, 0.0]), ([1.0, 0.0, 0.0], [255.0, 0.0, 0.0])] {
         let got = filter(warming32, SampleType::F32, v);
         assert!(got.iter().zip(ps).all(|(g, p)| (g - p).abs() <= 2.5), "F32 {v:?}: got {got:?} want {ps:?}");
+    }
+}
+
+#[test]
+fn rendering_restores_the_lab_mix_flag_it_found() {
+    // #1112: a render set LAB_MIX for its document, then cleared it. A nested rayon job (a
+    // gradient fill, say) can let a thread render another tile in the middle of an outer Lab
+    // tile, and clearing the flag made the rest of that outer tile mix in sRGB.
+    for mode in [ColorMode::Lab, ColorMode::Rgb] {
+        let doc = Document::with_background("t", Size::new(8, 8), mode, SampleType::U8, Color::WHITE);
+        // Single-tile and multi-tile paths (the latter also prepares effect maps under the flag).
+        for tile in [RENDER_TILE, 4] {
+            for outer in [true, false] {
+                psblend::LAB_MIX.with(|l| l.set(outer));
+                let _ = render_tiled(&doc, doc.bounds(), tile);
+                let after = psblend::LAB_MIX.with(|l| l.get());
+                psblend::LAB_MIX.with(|l| l.set(false));
+                assert_eq!(after, outer, "{mode:?} with tile {tile} inside a tile that had LAB_MIX = {outer}");
+            }
+        }
     }
 }
 

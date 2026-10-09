@@ -96,8 +96,10 @@ pub fn render_tiled(doc: &Document, rect: Rect, tile: i32) -> Buffer {
 
 fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer {
     let tile = tile.max(1);
-    // Lab documents mix Normal blending in CIELAB, as Photoshop does (psblend::LAB_MIX).
+    // Lab documents mix Normal blending in CIELAB, as Photoshop does (psblend::LAB_MIX); 32-bit
+    // documents don't clip Add / Divide at 1 (psblend::HDR).
     let lab = doc.mode == photocraft_color::ColorMode::Lab;
+    let hdr = doc.depth == photocraft_color::SampleType::F32;
     // CMYK layers are read through the document's own CMYK profile (thread-local scope).
     let cmyk = cmyk_space(doc);
     let cmyk = cmyk.as_ref();
@@ -107,26 +109,18 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     if rect.width() as i32 <= tile && rect.height() as i32 <= tile {
         return photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut buf = multichannel::backdrop(doc, rect);
-            psblend::LAB_MIX.with(|l| l.set(lab));
-            composite_stack_at(&doc.layers, &mut buf, cx, advanced::Scope::ROOT);
-            psblend::LAB_MIX.with(|l| l.set(false));
+            in_blend_space(lab, hdr, || composite_stack_at(&doc.layers, &mut buf, cx, advanced::Scope::ROOT));
             buf
         });
     }
     // Effect maps are built once, here, before any tile needs them (#276).
     prepare_effects(&doc.layers, rect, cx, |f| {
-        photocraft_color::convert::with_cmyk_space(cmyk, || {
-            psblend::LAB_MIX.with(|l| l.set(lab));
-            f();
-            psblend::LAB_MIX.with(|l| l.set(false));
-        });
+        photocraft_color::convert::with_cmyk_space(cmyk, || in_blend_space(lab, hdr, f));
     });
     let run = |t: Rect| {
         photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut b = multichannel::backdrop(doc, t);
-            psblend::LAB_MIX.with(|l| l.set(lab));
-            composite_stack_at(&doc.layers, &mut b, cx, advanced::Scope::ROOT);
-            psblend::LAB_MIX.with(|l| l.set(false));
+            in_blend_space(lab, hdr, || composite_stack_at(&doc.layers, &mut b, cx, advanced::Scope::ROOT));
             b
         })
     };
@@ -184,6 +178,13 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
         }
     }
     out
+}
+
+/// Runs `f` with this thread's document blend flags set ([`psblend::LAB_MIX`], [`psblend::HDR`]),
+/// then restores the values they had (also on unwind): a nested rayon job can run another tile
+/// on this thread mid-composite, and clearing the flags there broke the outer tile (#1112).
+fn in_blend_space<R>(lab: bool, hdr: bool, f: impl FnOnce() -> R) -> R {
+    psblend::with_lab_mix(lab, || psblend::with_hdr(hdr, f))
 }
 
 /// The document's own CMYK profile for reading its CMYK pixels (`None`: not a CMYK document,
@@ -309,7 +310,14 @@ pub fn thumbnail_buffer(doc: &Document, max_side: u32) -> Buffer {
 /// The document's composite area-averaged (premultiplied) down to `w`×`h` (clamped to the
 /// document size), rendered in bands so no full-size composite is held.
 pub fn render_reduced(doc: &Document, w: u32, h: u32) -> Buffer {
-    render_reduced_in_bands(doc, w, h, None, 0)
+    render_reduced_in_bands(doc, doc.bounds(), w, h, None, 0)
+}
+
+/// [`render_reduced`] of any area of the document plane, `rect`, which may lie past the canvas
+/// (layer pixels there are kept until a crop deletes them). The buffer's rect is in output pixels
+/// from (0, 0).
+pub fn render_reduced_rect(doc: &Document, rect: Rect, w: u32, h: u32) -> Buffer {
+    render_reduced_in_bands(doc, rect, w, h, None, 0)
 }
 
 /// The part of [`render_reduced`]`(doc, w, h)` that a change to `damage` (document pixels) can
@@ -317,13 +325,12 @@ pub fn render_reduced(doc: &Document, w: u32, h: u32) -> Buffer {
 /// same values the whole reduction gives them. The buffer's rect is in output pixels (empty when
 /// `damage` misses the document), so a reduced canvas texture can update only what a stroke touched.
 pub fn render_reduced_damage(doc: &Document, w: u32, h: u32, damage: Rect) -> Buffer {
-    render_reduced_in_bands(doc, w, h, Some(damage), 0)
+    render_reduced_in_bands(doc, doc.bounds(), w, h, Some(damage), 0)
 }
 
-/// [`render_reduced`] (or, with `damage`, [`render_reduced_damage`]) with an explicit band height
-/// (see [`render_bands`]).
-fn render_reduced_in_bands(doc: &Document, w: u32, h: u32, damage: Option<Rect>, band_rows: i32) -> Buffer {
-    let b = doc.bounds();
+/// [`render_reduced_rect`] (or, with `damage`, [`render_reduced_damage`]) of area `b` with an
+/// explicit band height (see [`render_bands`]).
+fn render_reduced_in_bands(doc: &Document, b: Rect, w: u32, h: u32, damage: Option<Rect>, band_rows: i32) -> Buffer {
     let (fw, fh) = (b.width() as usize, b.height() as usize);
     let (w, h) = (w.clamp(1, b.width().max(1)) as usize, h.clamp(1, b.height().max(1)) as usize);
     let full = Rect::from_xywh(0, 0, w as u32, h as u32);

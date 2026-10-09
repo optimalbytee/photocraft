@@ -1,24 +1,44 @@
 //! The browser shell: web `Services`, drag-and-drop, and the eframe web runner.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Image};
 use photocraft_doc::Document;
 use photocraft_engine::Session;
+use photocraft_ui_egui::served_fonts;
 use photocraft_ui_egui::theme::ThemeKind;
 use photocraft_ui_egui::{FileDialogAnswer, FileDialogRequest, PhotocraftApp, Services};
 use wasm_bindgen::JsCast as _;
 
 type Inbox = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
 
-/// Everything File › Open reads: PhotoCraft and Photoshop documents, flat images, and Photoshop
-/// brushes (.abr), gradients (.grd) and swatches (.aco, .ase), which go to the preset libraries.
+/// Everything File › Open reads: PhotoCraft, Photoshop and Affinity documents, flat images, and
+/// Photoshop brushes (.abr), gradients (.grd) and swatches (.aco, .ase), which go to the preset libraries.
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam",
-    "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase",
+    "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "af",
+    "afdesign", "afphoto", "afpub",
 ];
 const CANVAS_ID: &str = "photocraft_canvas";
+
+/// Fonts the host serves next to the page (`photocraft_ui_egui::served_fonts`): craft-fonts' manifest
+/// format, each file relative to the site root. No manifest (a 404) means no served fonts.
+const FONTS_MANIFEST: &str = "fonts/manifest.txt";
+
+/// The served fonts: the manifest once read, and what the network has delivered.
+#[derive(Default)]
+struct ServedFonts {
+    /// Font files by family.
+    files: HashMap<String, Vec<String>>,
+    /// Families fetched or being fetched: each one once per page load.
+    fetched: HashSet<String>,
+    /// Downloaded files waiting for the next frame: (family, bytes).
+    arrived: Vec<(String, Vec<u8>)>,
+}
+
+type Served = Arc<Mutex<ServedFonts>>;
 
 pub fn start() {
     eframe::WebLogger::init(log::LevelFilter::Info).ok();
@@ -48,6 +68,8 @@ pub fn start() {
                 Box::new(move |cc| {
                     PhotocraftApp::setup_context(&cc.egui_ctx, ThemeKind::Pro);
                     let inbox: Inbox = Arc::default();
+                    let served: Served = Arc::default();
+                    load_font_manifest(served.clone(), cc.egui_ctx.clone());
                     let mut app = PhotocraftApp::new(Session::new(), services(inbox.clone()));
                     listen_pen(&pen_target, app.stylus.feed.clone());
                     app.set_theme(&cc.egui_ctx, ThemeKind::Pro);
@@ -59,7 +81,7 @@ pub fn start() {
                     }
                     let unsaved = Arc::new(AtomicBool::new(false));
                     guard_unload(unsaved.clone());
-                    Ok(Box::new(WebShell { app, inbox, unsaved }))
+                    Ok(Box::new(WebShell { app, inbox, unsaved, served }))
                 }),
             )
             .await;
@@ -124,6 +146,45 @@ fn query() -> String {
     web_sys::window().and_then(|w| w.location().search().ok()).unwrap_or_default()
 }
 
+/// Reads the served font manifest, if the host has one, and lists its families in the font menus.
+fn load_font_manifest(served: Served, ctx: egui::Context) {
+    wasm_bindgen_futures::spawn_local(async move {
+        // Most hosts serve no fonts: a missing manifest is the normal case, not an error.
+        let Ok(bytes) = fetch_bytes(FONTS_MANIFEST).await else { return };
+        let text = String::from_utf8_lossy(&bytes);
+        // A host that answers unknown paths with its HTML page (single-page app fallback).
+        if text.trim_start().starts_with('<') {
+            return;
+        }
+        let (fonts, skipped) = served_fonts::parse_manifest(&text);
+        for s in skipped {
+            log::warn!("{FONTS_MANIFEST}: skipped {s}");
+        }
+        let mut files: HashMap<String, Vec<String>> = HashMap::new();
+        for f in fonts {
+            files.entry(f.family).or_default().push(f.file);
+        }
+        log::info!("photocraft-web: {} served font families", files.len());
+        let families: Vec<String> = files.keys().cloned().collect();
+        served.lock().unwrap_or_else(|e| e.into_inner()).files = files;
+        served_fonts::add_families(families);
+        ctx.request_repaint();
+    });
+}
+
+/// GET `url` (relative to the page) and read the whole body.
+async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    use wasm_bindgen_futures::JsFuture;
+    let js = |e: wasm_bindgen::JsValue| format!("{e:?}");
+    let window = web_sys::window().ok_or("no window")?;
+    let resp: web_sys::Response = JsFuture::from(window.fetch_with_str(url)).await.map_err(js)?.dyn_into().map_err(|_| "not a Response")?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let body = JsFuture::from(resp.array_buffer().map_err(js)?).await.map_err(js)?;
+    Ok(js_sys::Uint8Array::new(&body).to_vec())
+}
+
 /// Wraps the app to read dropped files asynchronously (browsers can't read them synchronously,
 /// so the app's own drop path can't handle them) and feed them through the inbox.
 struct WebShell {
@@ -131,6 +192,41 @@ struct WebShell {
     inbox: Inbox,
     /// Read by the `beforeunload` listener ([`guard_unload`]).
     unsaved: Arc<AtomicBool>,
+    served: Served,
+}
+
+impl WebShell {
+    /// Fetches the served families asked for (picked in a font menu, or needed by a layout) and
+    /// installs the files that arrived.
+    fn serve_fonts(&mut self, ctx: &egui::Context) {
+        let requested = served_fonts::take_requests();
+        let (fetch, arrived) = {
+            let mut s = self.served.lock().unwrap_or_else(|e| e.into_inner());
+            let mut fetch = Vec::new();
+            for family in requested {
+                if let Some(files) = s.files.get(&family).cloned()
+                    && s.fetched.insert(family.clone())
+                {
+                    fetch.extend(files.into_iter().map(|file| (family.clone(), file)));
+                }
+            }
+            (fetch, std::mem::take(&mut s.arrived))
+        };
+        for (family, file) in fetch {
+            let served = self.served.clone();
+            let ctx = ctx.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match fetch_bytes(&file).await {
+                    Ok(bytes) => {
+                        served.lock().unwrap_or_else(|e| e.into_inner()).arrived.push((family, bytes));
+                        ctx.request_repaint();
+                    }
+                    Err(e) => log::error!("couldn't fetch served font {file}: {e}"),
+                }
+            });
+        }
+        served_fonts::install(&mut self.app, arrived);
+    }
 }
 
 impl eframe::App for WebShell {
@@ -150,6 +246,7 @@ impl eframe::App for WebShell {
                 }
             });
         }
+        self.serve_fonts(ctx);
         self.app.logic(ctx, frame);
         self.unsaved.store(self.app.has_unsaved_work(), Ordering::Relaxed);
     }
@@ -161,6 +258,7 @@ impl eframe::App for WebShell {
 
 fn services(inbox: Inbox) -> Services {
     Services {
+        screen_pick: screen_color_service(),
         import: Some(Box::new(|name: &str, bytes: &[u8]| photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string()))),
         export: Some(Box::new(|doc: &Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
             let mut opts = photocraft_io::ExportOptions::default();
@@ -247,4 +345,73 @@ fn mime_for(name: &str) -> &'static str {
         Some("psd" | "psb") => "image/vnd.adobe.photoshop",
         _ => "application/octet-stream",
     }
+}
+
+/// Rust bindings to the browser's user-activated EyeDropper API; unsupported browsers keep
+/// the document picker and its normal canvas zoom. The browser owns its screen magnifier.
+fn screen_color_service() -> Option<photocraft_ui_egui::screen_picker::Service> {
+    use js_sys::{Function, Reflect};
+    use photocraft_ui_egui::screen_picker::{Capture, Pending};
+    use wasm_bindgen::{JsValue, closure::Closure};
+    let window = web_sys::window()?;
+    let constructor = Reflect::get(&window, &JsValue::from_str("EyeDropper")).ok()?.dyn_into::<Function>().ok()?;
+    Some(Box::new(move |ctx| {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let started = (|| -> Result<_, String> {
+            let eye = Reflect::construct(&constructor, &js_sys::Array::new()).map_err(|e| format!("Could not start browser eyedropper: {e:?}"))?;
+            let controller = web_sys::AbortController::new().map_err(|e| format!("Could not create eyedropper cancellation: {e:?}"))?;
+            let options = js_sys::Object::new();
+            Reflect::set(&options, &JsValue::from_str("signal"), &controller.signal()).map_err(|e| format!("Could not set eyedropper options: {e:?}"))?;
+            let open = Reflect::get(&eye, &JsValue::from_str("open"))
+                .map_err(|e| format!("Browser eyedropper has no open method: {e:?}"))?
+                .dyn_into::<Function>()
+                .map_err(|_| "Invalid browser eyedropper method")?;
+            let promise = open
+                .call1(&eye, &options)
+                .map_err(|e| format!("Could not open browser eyedropper: {e:?}"))?
+                .dyn_into::<js_sys::Promise>()
+                .map_err(|_| "Browser eyedropper returned no promise")?;
+            let stop = cancelled.clone();
+            let abort = controller.clone();
+            let timer = Closure::<dyn FnMut()>::new(move || {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    abort.abort();
+                }
+            });
+            let interval = window.set_interval_with_callback_and_timeout_and_arguments_0(timer.as_ref().unchecked_ref(), 50).map_err(|e| {
+                controller.abort();
+                format!("Could not watch eyedropper cancellation: {e:?}")
+            })?;
+            Ok((promise, timer, interval))
+        })();
+        match started {
+            Err(e) => {
+                let _ = tx.send(Err(e));
+            }
+            Ok((promise, timer, interval)) => {
+                let wake = ctx.clone();
+                let window = window.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let result = match wasm_bindgen_futures::JsFuture::from(promise).await {
+                        Ok(value) => Reflect::get(&value, &JsValue::from_str("sRGBHex"))
+                            .ok()
+                            .and_then(|v| v.as_string())
+                            .and_then(|h| photocraft_ui_egui::color_picker_ui::parse_hex(&h))
+                            .map(|rgb| Capture::Color(Some(rgb)))
+                            .ok_or_else(|| "Browser eyedropper returned an invalid color".into()),
+                        Err(e) if Reflect::get(&e, &JsValue::from_str("name")).ok().and_then(|v| v.as_string()).as_deref() == Some("AbortError") => {
+                            Ok(Capture::Color(None))
+                        }
+                        Err(e) => Err(format!("Browser screen color selection failed: {e:?}")),
+                    };
+                    window.clear_interval_with_handle(interval);
+                    drop(timer);
+                    let _ = tx.send(result);
+                    wake.request_repaint();
+                });
+            }
+        }
+        Pending { receiver: rx, cancelled }
+    }))
 }

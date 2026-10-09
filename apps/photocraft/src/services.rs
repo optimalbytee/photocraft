@@ -13,12 +13,23 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Everything File › Open reads: PhotoCraft and Photoshop documents, flat images, and Photoshop
-/// brushes (.abr), gradients (.grd) and swatches (.aco, .ase), which go to the preset libraries.
+/// Everything File › Open reads: PhotoCraft, Photoshop and Affinity documents, flat images, and
+/// Photoshop brushes (.abr), gradients (.grd) and swatches (.aco, .ase), which go to the preset libraries.
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam",
-    "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase",
+    "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "af",
+    "afdesign", "afphoto", "afpub",
 ];
+
+/// Open dialog extensions that also match uppercase and mixed-case names (`IMG_0001.JPG`).
+/// On Linux and the BSDs rfd turns each extension into a case-sensitive `*.ext` glob for the XDG
+/// portal or zenity, so every letter becomes a character class, as the portal spec suggests
+/// (`*.[iI][cC][oO]`). Windows and macOS take literal extensions and ignore case already.
+fn open_filter_extensions(extensions: &[&str]) -> Vec<String> {
+    let case_sensitive_globs = cfg!(all(unix, not(target_os = "macos")));
+    let class = |c: char| if c.is_ascii_alphabetic() { format!("[{}{}]", c.to_ascii_lowercase(), c.to_ascii_uppercase()) } else { c.to_string() };
+    extensions.iter().map(|ext| if case_sensitive_globs { ext.chars().map(class).collect() } else { ext.to_string() }).collect()
+}
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
 /// extension comes first, so a .pcraft document saves as .pcraft by default and everything else
@@ -65,8 +76,11 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
         dialog = dialog.set_parent(parent);
     }
     let answer: Pin<Box<dyn Future<Output = Option<FileDialogAnswer>> + Send>> = match request {
-        FileDialogRequest::Open { multiple } => {
-            let dialog = dialog.add_filter("All Formats", OPEN_EXTS).add_filter("PhotoCraft", &["pcraft"]);
+        FileDialogRequest::Open { multiple, initial_dir } => {
+            if let Some(dir) = initial_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let dialog = dialog.add_filter("All Formats", &open_filter_extensions(OPEN_EXTS)).add_filter("PhotoCraft", &open_filter_extensions(&["pcraft"]));
             if multiple {
                 let picked = dialog.pick_files();
                 Box::pin(async move { picked.await.map(|files| FileDialogAnswer::Paths(files.iter().map(path_of).collect())) })
@@ -81,6 +95,9 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
             }
             if let Some(name) = Path::new(&suggested).file_name() {
                 dialog = dialog.set_file_name(name.to_string_lossy());
+            }
+            if let Some(dir) = Path::new(&suggested).parent().filter(|p| !p.as_os_str().is_empty()) {
+                dialog = dialog.set_directory(dir);
             }
             let picked = dialog.save_file();
             Box::pin(async move { picked.await.map(|file| FileDialogAnswer::SaveTo(path_of(&file))) })
@@ -158,11 +175,12 @@ fn with_store<R>(store: &SharedRecovery, f: impl FnOnce(&mut RecoveryStore) -> R
 /// until a newer autosave replaces them or they're saved or closed (see [`RecoveryStore`]).
 fn recovery_services(dir: Option<PathBuf>) -> Services {
     let store: SharedRecovery = Rc::new(RefCell::new(dir.map(RecoveryStore::new)));
-    let (s1, s2, s3) = (store.clone(), store.clone(), store.clone());
+    let (s1, s2, s3, s4) = (store.clone(), store.clone(), store.clone(), store.clone());
     Services {
         autosave: Some(Box::new(move |doc: &Arc<Document>, revision: u64, path: Option<&str>| {
-            with_store(&s1, |s| s.autosave(doc, revision, path.map(str::to_string)))
+            with_store(&s1, |s| s.autosave_checked(doc, revision, path.map(str::to_string)))?
         })),
+        autosave_results: Some(Box::new(move || with_store(&s4, |s| s.take_completed()).unwrap_or_default())),
         discard_autosave: Some(Box::new(move |id: u64| {
             let _ = with_store(&s2, |s| s.discard(id));
         })),
@@ -381,6 +399,44 @@ mod tests {
     use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
     use serde_json::{Value, json};
 
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn open_filters_cover_uppercase_and_mixed_case_extensions() {
+        // Matches `text` against a glob of literals and `[..]` classes, as the portal would after `*.`.
+        fn matches(glob: &str, text: &str) -> bool {
+            let mut text = text.chars();
+            let mut glob = glob.chars();
+            while let Some(g) = glob.next() {
+                let class: String = if g == '[' { glob.by_ref().take_while(|&c| c != ']').collect() } else { g.to_string() };
+                if !text.next().is_some_and(|t| class.contains(t)) {
+                    return false;
+                }
+            }
+            text.next().is_none()
+        }
+        assert_eq!(open_filter_extensions(&["cr2", "pcraft"]), ["[cC][rR]2", "[pP][cC][rR][aA][fF][tT]"]);
+        let globs = open_filter_extensions(OPEN_EXTS);
+        assert_eq!(globs.len(), OPEN_EXTS.len());
+        for (ext, glob) in OPEN_EXTS.iter().zip(&globs) {
+            // Every casing: lower, UPPER, and alternating both ways (JpG, jPg).
+            let alternating = |upper_first: bool| -> String {
+                ext.chars().enumerate().map(|(i, c)| if (i % 2 == 0) == upper_first { c.to_ascii_uppercase() } else { c }).collect()
+            };
+            for name in [ext.to_string(), ext.to_ascii_uppercase(), alternating(true), alternating(false)] {
+                assert!(matches(glob, &name), "{glob} should match .{name}");
+            }
+            assert!(!matches(glob, &format!("{ext}x")) && !matches(glob, &ext[..ext.len() - 1]), "{glob} matches only .{ext}");
+        }
+        assert!(!globs.iter().any(|glob| matches(glob, "txt")));
+    }
+
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    #[test]
+    fn open_filters_keep_literal_extensions_on_windows_and_macos() {
+        assert_eq!(open_filter_extensions(OPEN_EXTS), OPEN_EXTS);
+        assert_eq!(open_filter_extensions(&["pcraft"]), ["pcraft"]);
+    }
+
     #[test]
     fn xwayland_command_matches_how_photocraft_was_installed() {
         // Flatpak: WAYLAND_DISPLAY doesn't reach the sandbox's socket choice; flatpak's flags do.
@@ -573,6 +629,54 @@ mod tests {
         assert!(list_recovery(&dir).is_empty());
         drop(app);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_background_autosave_is_reported_and_retried_without_another_edit() {
+        let dir = temp("autosave-retry");
+        let recovery = dir.join("Recovery");
+        // A regular file prevents creation of the recovery bundle directory.
+        std::fs::write(&recovery, b"blocked").unwrap();
+        let ctx = egui::Context::default();
+        let mut app = launch(&recovery);
+        new_doc(&mut app, "#ff0000");
+        let revision = app.session.active().unwrap().revision;
+        autosave(&mut app, &ctx);
+
+        let mut failed = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            prefs_ui::tick(&mut app, &ctx);
+            if app.ui.status.starts_with("Autosave failed:") {
+                failed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(failed, "background write failures must reach the UI");
+        assert!(app.ui.status_error);
+        assert!(list_recovery(&recovery).is_empty());
+
+        // No edit occurs: retrying this very same revision must still work.
+        std::fs::remove_file(&recovery).unwrap();
+        std::fs::create_dir(&recovery).unwrap();
+        autosave(&mut app, &ctx);
+        let mut recovered = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            prefs_ui::tick(&mut app, &ctx);
+            recovered = list_recovery(&recovery);
+            if !recovered.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(recovered.len(), 1, "unchanged revision should retry after failure");
+        assert_eq!(recovered[0].info.revision, revision);
+        let restored = photocraft_format::recover(&recovered[0]).unwrap();
+        assert_eq!(photocraft_compose::flatten(&restored).px.first().copied(), Some(RED));
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};

@@ -17,6 +17,10 @@
 	Layer	Livello
 	Type	Testo
 	Select	Selezione
+	Top Left	In alto a sinistra
+	Top Right	In alto a destra
+	Bottom Left	In basso a sinistra
+	Bottom Right	In basso a destra
 	Filter	Filtro
 	View	Vista
 	Window	Finestra
@@ -976,6 +980,7 @@
 	Native file drag-and-drop is unavailable	Il drag-and-drop nativo file non è disponibile su Wayland
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	Il drag-and-drop nativo non è ancora supportato su Wayland. Usa File › Apri, oppure copia l'immagine nel file manager e incollala con {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Per trascinare file, avvia PhotoCraft sotto XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	Oppure imposta Preferenze › Prestazioni › Server grafico Linux su X11: PhotoCraft partirà sempre sotto XWayland.
 	Edit › Paste	Modifica › Incolla
 	Duplicate Layers…	Duplica livelli…
 	Duplicate style	Duplica stile
@@ -1386,6 +1391,8 @@
 	Stroke	Traccia
 	Stroke Catch-up	Recupero traccia
 	Stroke:	Traccia:
+	Location	Posizione
+	Location:	Posizione:
 	Style	Stile
 	Style Options	Opzioni stile
 	Style Options…	Opzioni stile…
@@ -1464,6 +1471,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ naviga {key} esegui esc chiudi
 	Version {version}	Versione {version}
 	New Document	Nuovo documento
+	Save Preset…	Salva predefinito…
+	Preset Name	Nome del predefinito
+	No saved presets yet.	Nessun predefinito salvato.
 	Error	Errore
 	Command	Comando
 
@@ -2004,6 +2014,8 @@
 	CPU (no GPU acceleration)	CPU (nessuna accelerazione GPU)
 	DirectX 12	DirectX 12
 	GPU backend	Backend GPU
+	Linux display server	Server grafico Linux
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	Usa pressione tavoletta
@@ -2163,6 +2175,7 @@ cameraRaw	Amount	Quantità
 	Patch Tool	Strumento Toppa
 	Patch:	Toppa:
 	Lasso around an area, then drag the selection	Seleziona un'area con lazo, poi trascina la selezione
+	Now drag the selection onto another area	Ora trascina la selezione su un'altra area
 	Edit Type	Modifica testo
 
 # Strings added on main after this catalog was written (2026-10).
@@ -2237,6 +2250,14 @@ cameraRaw	Amount	Quantità
 	Add to Swatches	Aggiungi ai campioni
 	Convert to Layers	Converti in livelli
 	Apply At Canvas Bounds	Applica effetto ai limiti dell’area di lavoro
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	Selettore colore (Colore del testo)
+	Pick screen color	Scegli colore dallo schermo
+	Sample a pixel anywhere on the screen	Campiona un pixel in qualsiasi punto dello schermo
+	Click to pick · Esc to cancel	Clic per scegliere · Esc per annullare
+	Pick a screen pixel or press Esc to cancel	Scegli un pixel dello schermo o premi Esc per annullare
+	Scroll to zoom	Scorri per ingrandire
 	Show/Hide All Panels	Mostra/nascondi tutti i pannelli
 	Show/Hide Panels	Mostra/nascondi pannelli
 	Could not open	Impossibile aprire
@@ -2296,4 +2317,32 @@ fontWeight	Italic	Corsivo
 	Pattern Stamp Tool	Strumento Timbro motivo
 	Pattern Stamp	Timbro motivo
 	Impressionist	Impressionista
+	Rotate View	Ruota vista
+	Rotate View Tool	Strumento Ruota vista
+	Reset View	Reimposta vista
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Trascina intorno al centro per ruotare la vista  ·  Maiusc vincola a 15°
 
+# Painting symmetry presets.
+	Dual Axis	Doppio asse
+	Diagonal	Diagonale
+	Transform Symmetry	Trasforma simmetria
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Campione puntiforme
+	3 by 3 Average	Media 3 × 3
+	5 by 5 Average	Media 5 × 5
+	11 by 11 Average	Media 11 × 11
+	31 by 31 Average	Media 31 × 31
+	51 by 51 Average	Media 51 × 51
+	101 by 101 Average	Media 101 × 101
+	Sample Size:	Dimensione campione:
+	All Layers No Adjustments	Tutti i livelli senza regolazioni
+	Current & Below No Adjustments	Corrente e inferiori senza regolazioni
+	Show Sampling Ring	Mostra anello di campionamento
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Fuori gamma di stampa: fai clic per il colore stampabile più vicino
+	Not a web colour: click for the nearest web colour	Non è un colore web: fai clic per il colore web più vicino
+	Color to Alpha…	Colore ad alfa…
+	Transparency Threshold	Soglia di trasparenza
+	Opacity Threshold	Soglia di opacità

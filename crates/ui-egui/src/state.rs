@@ -85,6 +85,7 @@ pub enum Tool {
     Type,
     VerticalType,
     Hand,
+    RotateView,
     Zoom,
     SpotHealing,
     Healing,
@@ -116,7 +117,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 51] = [
+    pub const ALL: [Tool; 52] = [
         Tool::Move,
         Tool::RectMarquee,
         Tool::EllipseMarquee,
@@ -140,6 +141,7 @@ impl Tool {
         Tool::Type,
         Tool::VerticalType,
         Tool::Hand,
+        Tool::RotateView,
         Tool::Zoom,
         Tool::SpotHealing,
         Tool::Healing,
@@ -197,6 +199,7 @@ impl Tool {
             Tool::Type => "Horizontal Type Tool",
             Tool::VerticalType => "Vertical Type Tool",
             Tool::Hand => "Hand Tool",
+            Tool::RotateView => "Rotate View Tool",
             Tool::Zoom => "Zoom Tool",
             Tool::SpotHealing => "Spot Healing Brush Tool",
             Tool::Healing => "Healing Brush Tool",
@@ -265,6 +268,7 @@ impl Tool {
             Tool::Gradient | Tool::PaintBucket => 'G',
             Tool::Type | Tool::VerticalType => 'T',
             Tool::Hand => 'H',
+            Tool::RotateView => 'R',
             Tool::Zoom => 'Z',
             Tool::SpotHealing | Tool::Healing | Tool::Patch | Tool::ContentAwareMove | Tool::RedEye => 'J',
             Tool::CloneStamp | Tool::PatternStamp => 'S',
@@ -293,6 +297,7 @@ impl Tool {
             Tool::Gradient | Tool::PaintBucket => "G",
             Tool::Type | Tool::VerticalType => "T",
             Tool::Hand => "✋",
+            Tool::RotateView => "🧭",
             Tool::Zoom => "🔍",
             _ => "•",
         }
@@ -388,11 +393,14 @@ pub struct View {
     /// Document size this view last showed; a change (Image/Canvas Size, crop) re-centres it.
     #[serde(default)]
     pub doc_size: [u32; 2],
+    /// Canvas camera rotation in degrees, wrapped to (−180, 180]. Turns the view, not the pixels.
+    #[serde(default)]
+    pub rotation: f32,
 }
 
 impl Default for View {
     fn default() -> Self {
-        Self { zoom: 1.0, center: [0.0, 0.0], fit_pending: true, fill_pending: false, doc_size: [0, 0] }
+        Self { zoom: 1.0, center: [0.0, 0.0], fit_pending: true, fill_pending: false, doc_size: [0, 0], rotation: 0.0 }
     }
 }
 
@@ -522,6 +530,18 @@ pub struct ToolOptions {
     pub red_eye_pupil_size: f32,
     #[serde(default = "fifty")]
     pub red_eye_darken: f32,
+    /// Eyedropper › Sample Size: 1 = Point Sample, else the side of the averaged square (3, 5,
+    /// 11, 31, 51, 101; `photocraft_engine::sample_cmds::SAMPLE_SIZES`). Shared, as in Photoshop,
+    /// with the ⌥-click eyedropper of the painting tools, the dialog eyedroppers and the Info panel.
+    #[serde(default = "one_u32")]
+    pub eyedropper_size: u32,
+    /// Eyedropper › Sample: current | currentAndBelow | all | allNoAdjustments |
+    /// currentAndBelowNoAdjustments (`document.sampleColor`'s `sampleLayer`).
+    #[serde(default = "default_eyedropper_sample")]
+    pub eyedropper_sample: String,
+    /// Eyedropper › Show Sampling Ring.
+    #[serde(default = "yes")]
+    pub eyedropper_ring: bool,
 }
 
 fn yes() -> bool {
@@ -542,6 +562,19 @@ fn one() -> f32 {
 
 fn fifty() -> f32 {
     50.0
+}
+
+/// The session brush starts out as the Brush's (the tool the app opens with).
+fn default_brush_tool() -> Tool {
+    Tool::Brush
+}
+
+fn one_u32() -> u32 {
+    1
+}
+
+fn default_eyedropper_sample() -> String {
+    "all".into()
 }
 
 impl Default for ToolOptions {
@@ -611,6 +644,9 @@ impl Default for ToolOptions {
             magnetic_pressure: false,
             red_eye_pupil_size: 50.0,
             red_eye_darken: 50.0,
+            eyedropper_size: 1,
+            eyedropper_sample: default_eyedropper_sample(),
+            eyedropper_ring: true,
         }
     }
 }
@@ -664,6 +700,10 @@ pub struct TransformSession {
     /// the Quick Mask by itself (`None`: the layer, with its linked masks).
     #[serde(default)]
     pub target: Option<serde_json::Value>,
+    /// Free Transform Path: `path.transform`'s `name` (and `layer`) when the box moves a
+    /// path's anchors and handles instead of pixels.
+    #[serde(default)]
+    pub path: Option<serde_json::Value>,
     /// The layer was made for this session (⌥⌘T's copy, #352; a file dropped on the canvas), so
     /// Cancel takes it back and OK folds it into one history step with the transform.
     #[serde(default)]
@@ -772,6 +812,9 @@ pub struct UiState {
     /// Free Transform session, if any.
     #[serde(default)]
     pub transform: Option<TransformSession>,
+    /// Temporary symmetry-axis editing, exposed to automation but never restored from settings.
+    #[serde(default, skip_deserializing)]
+    pub symmetry_transform: Option<crate::symmetry_ui::Transform>,
     /// Clone Stamp / Healing source point (⌥-click) and the aligned offset once a stroke started.
     #[serde(default)]
     pub clone_source: Option<[f64; 2]>,
@@ -801,12 +844,13 @@ pub struct UiState {
     /// Selection-tool context menu opened by a plain canvas right-click.
     #[serde(default)]
     pub canvas_tool_menu: Option<crate::canvas_tool_menu::CanvasToolMenu>,
-    /// Smoothing is a per-tool option (Brush and Eraser each keep theirs): the tool whose
-    /// smoothing the session brush holds, and the other tools' saved values.
+    /// The brush is a per-tool option (the Brush, the Eraser and every retouching tool each keep
+    /// their own size, hardness, tip and dynamics, as in Photoshop): the tool whose brush the
+    /// session brush holds, and the other tools' saved brushes.
+    #[serde(default = "default_brush_tool")]
+    pub brush_tool: Tool,
     #[serde(default)]
-    pub smoothing_tool: Option<Tool>,
-    #[serde(default)]
-    pub tool_smoothing: Vec<(Tool, photocraft_engine::paint::brush::Smoothing)>,
+    pub tool_brushes: Vec<(Tool, photocraft_engine::paint::BrushSettings)>,
     /// Pen path under construction.
     #[serde(default)]
     pub pen: Option<crate::vector_ui::PenPath>,
@@ -888,6 +932,10 @@ pub struct UiState {
     /// Crop tool rectangle being edited [x0, y0, x1, y1] (document coordinates).
     #[serde(default)]
     pub crop_rect: Option<[f64; 4]>,
+    /// The crop frame's turn in degrees, clockwise on screen about its centre (`crop_rect` is the
+    /// frame before the turn); 0 when upright. Committing passes it as `image.crop`'s `angle`.
+    #[serde(default)]
+    pub crop_angle: f64,
     pub next_id: u64,
     /// Last status message (errors from commands, hints).
     pub status: String,
@@ -921,14 +969,15 @@ impl Default for UiState {
             type_transform: None,
             type_transform_pivot: None,
             transform: None,
+            symmetry_transform: None,
             mask_target: false,
             vector_mask_target: false,
             brush_picker: None,
             brush_picker_list: crate::brush_picker::list_state(),
             layer_menu: None,
             canvas_tool_menu: None,
-            smoothing_tool: None,
-            tool_smoothing: Vec::new(),
+            brush_tool: Tool::Brush,
+            tool_brushes: Vec::new(),
             clone_source: None,
             clone_offset: None,
             pattern_stamp_phase: None,
@@ -965,6 +1014,7 @@ impl Default for UiState {
             polygon_mode: String::new(),
             magnetic: Default::default(),
             crop_rect: None,
+            crop_angle: 0.0,
             next_id: 1,
             status: String::new(),
             status_error: false,
@@ -1024,8 +1074,34 @@ mod tests {
         assert!(!Tool::RedEye.is_brushlike());
         assert_eq!(Tool::from_name("patternStamp"), Some(Tool::PatternStamp));
         assert_eq!(Tool::from_name("Pattern Stamp Tool"), Some(Tool::PatternStamp));
-        assert_eq!(Tool::ALL.len(), 51);
+        assert_eq!(Tool::ALL.len(), 52);
+        assert_eq!(Tool::from_name("RotateView"), Some(Tool::RotateView));
+        assert_eq!(Tool::from_name("Rotate View Tool"), Some(Tool::RotateView));
+        assert_eq!(Tool::RotateView.key(), 'R');
         assert_eq!(Tool::from_name("nope"), None);
+    }
+
+    /// The README's "Everything in the box" tool heading and list name exactly the tools a user can
+    /// pick, `Tool::ALL` (#996).
+    #[test]
+    fn readme_tool_list_matches_tool_all() {
+        let readme = include_str!("../../../README.md");
+        let (_, rest) = readme.split_once("<h4>🧰 ").unwrap();
+        let (count, rest) = rest.split_once(" tools</h4>").unwrap();
+        assert_eq!(count.parse::<usize>().unwrap(), Tool::ALL.len(), "README.md tool heading");
+        let list = rest.trim_start().lines().next().unwrap();
+        // "Rectangular and Elliptical Marquee" names two tools: "Rectangular Marquee", "Elliptical Marquee".
+        let mut named: Vec<String> = Vec::new();
+        for entry in list.split(" · ") {
+            match entry.split_once(" and ").and_then(|(first, rest)| Some((first, rest.split_once(' ')?))) {
+                Some((first, (second, noun))) => named.extend([format!("{first} {noun}"), format!("{second} {noun}")]),
+                None => named.push(entry.to_owned()),
+            }
+        }
+        named.sort();
+        let mut labels: Vec<String> = Tool::ALL.iter().map(|tool| tool.label().trim_end_matches(" Tool").to_owned()).collect();
+        labels.sort();
+        assert_eq!(named, labels, "README.md tool list");
     }
 
     #[test]

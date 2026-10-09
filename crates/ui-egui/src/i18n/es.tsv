@@ -17,6 +17,10 @@
 	Layer	Capa
 	Type	Texto
 	Select	Selección
+	Top Left	Superior izquierda
+	Top Right	Superior derecha
+	Bottom Left	Inferior izquierda
+	Bottom Right	Inferior derecha
 	Filter	Filtro
 	View	Ver
 	Window	Ventana
@@ -977,6 +981,7 @@
 	Native file drag-and-drop is unavailable	El arrastrar y soltar archivos de forma nativa no está disponible en Wayland
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or copy the image in your file manager and paste it with {paste}.	El arrastrar y soltar archivos de forma nativa aún no está disponible en Wayland. Usa Archivo › Abrir, o copia la imagen en tu gestor de archivos y pégala con {paste}.
 	To drop files, start PhotoCraft under XWayland: `{command}`	Para soltar archivos, inicia PhotoCraft bajo XWayland: `{command}`
+	Or set Preferences › Performance › Linux display server to X11: PhotoCraft then always starts under XWayland.	O establece Preferencias › Rendimiento › Servidor de pantalla de Linux en X11: PhotoCraft se iniciará siempre bajo XWayland.
 	Edit › Paste	Edición › Pegar
 	Duplicate Layers…	Duplicar capas…
 	Duplicate style	Duplicar estilo
@@ -1387,6 +1392,8 @@
 	Stroke	Trazo
 	Stroke Catch-up	Poner al día del trazo
 	Stroke:	Trazo:
+	Location	Ubicación
+	Location:	Ubicación:
 	Style	Estilo
 	Style Options	Opciones de estilo
 	Style Options…	Opciones de estilo…
@@ -1465,6 +1472,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navegar   {key} ejecutar   esc cerrar
 	Version {version}	Versión {version}
 	New Document	Documento nuevo
+	Save Preset…	Guardar ajuste preestablecido…
+	Preset Name	Nombre del ajuste preestablecido
+	No saved presets yet.	Todavía no hay ajustes preestablecidos guardados.
 	Error	Error
 	Command	Comando
 
@@ -2006,6 +2016,8 @@
 	CPU (no GPU acceleration)	CPU (sin aceleración por GPU)
 	DirectX 12	DirectX 12
 	GPU backend	Backend de GPU
+	Linux display server	Servidor de pantalla de Linux
+	X11	X11
 	Metal	Metal
 	OpenGL	OpenGL
 	Use tablet pressure	Usar la presión de la tableta
@@ -2157,6 +2169,7 @@ cameraRaw	Amount	Cantidad
 	Patch Tool	Herramienta Parche
 	Patch:	Parche:
 	Lasso around an area, then drag the selection	Rodee un área con el lazo y arrastre la selección
+	Now drag the selection onto another area	Ahora arrastre la selección a otra área
 	Edit Type	Editar texto
 
 
@@ -2234,6 +2247,14 @@ cameraRaw	Amount	Cantidad
 	Channels:	Canales:
 	Knockout	Cobertura
 	Apply At Canvas Bounds	Aplicar efecto en los límites del lienzo
+
+# Shared screen eyedropper and text Color Picker (#1128).
+	Color Picker (Text Color)	Selector de color (Color del texto)
+	Pick screen color	Elegir color de pantalla
+	Sample a pixel anywhere on the screen	Tomar un píxel en cualquier lugar de la pantalla
+	Click to pick · Esc to cancel	Clic para elegir · Esc para cancelar
+	Pick a screen pixel or press Esc to cancel	Elige un píxel de pantalla o pulsa Esc para cancelar
+	Scroll to zoom	Desplaza para ampliar
 	Show/Hide All Panels	Mostrar/ocultar todos los paneles
 	Show/Hide Panels	Mostrar/ocultar paneles
 	Could not open	No se pudo abrir
@@ -2295,3 +2316,32 @@ fontWeight	Italic	Cursiva
 	Pattern Stamp Tool	Herramienta Sello de motivo
 	Pattern Stamp	Sello de motivo
 	Impressionist	Impresionista
+	Rotate View	Rotar vista
+	Rotate View Tool	Herramienta Rotar vista
+	Reset View	Restablecer vista
+	Drag around the centre to rotate the view  ·  Shift constrains to 15°	Arrastre alrededor del centro para rotar la vista  ·  Mayús fija a 15°
+
+# Painting symmetry presets.
+	Dual Axis	Doble eje
+	Diagonal	Diagonal
+	Transform Symmetry	Transformar simetría
+
+# Eyedropper Sample Size and Sample (#1649).
+	Point Sample	Muestra puntual
+	3 by 3 Average	Promedio de 3 × 3
+	5 by 5 Average	Promedio de 5 × 5
+	11 by 11 Average	Promedio de 11 × 11
+	31 by 31 Average	Promedio de 31 × 31
+	51 by 51 Average	Promedio de 51 × 51
+	101 by 101 Average	Promedio de 101 × 101
+	Sample Size:	Tamaño de muestra:
+	All Layers No Adjustments	Todas las capas sin ajustes
+	Current & Below No Adjustments	Actual e inferiores sin ajustes
+	Show Sampling Ring	Mostrar anillo de muestreo
+
+# Color Picker warnings
+	Out of gamut for printing: click for the nearest printable colour	Fuera de la gama de impresión: haga clic para el color imprimible más cercano
+	Not a web colour: click for the nearest web colour	No es un color web: haga clic para el color web más cercano
+	Color to Alpha…	Color a alfa…
+	Transparency Threshold	Umbral de transparencia
+	Opacity Threshold	Umbral de opacidad

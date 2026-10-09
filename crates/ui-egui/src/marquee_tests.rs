@@ -43,7 +43,13 @@ fn harness(tool: Tool) -> Harness<'static, PhotocraftApp> {
 fn screen(h: &Harness<'static, PhotocraftApp>, x: f32, y: f32) -> Pos2 {
     let app = h.state();
     let v = &app.ui.views[0];
-    let xf = ViewXform { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal };
+    let xf = ViewXform {
+        rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+        zoom: v.zoom,
+        center: v.center,
+        flip: app.ui.view.flip_horizontal,
+        rotation: v.rotation,
+    };
     xf.to_screen(x, y)
 }
 
@@ -126,6 +132,25 @@ fn alt_draws_from_the_centre_and_shift_alt_a_centred_circle() {
     mods(&mut h, Modifiers::NONE);
     let r = selection(&h);
     assert!(r.x0.abs_diff(170) <= 1 && r.x1.abs_diff(230) <= 1 && r.y0.abs_diff(120) <= 1 && r.y1.abs_diff(180) <= 1, "{r:?}");
+}
+
+#[test]
+fn the_live_outline_snaps_to_pixels_and_matches_the_committed_selection() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        let mut h = harness(tool);
+        // Zoomed in, the pointer lands between pixel edges.
+        let v = &mut h.state_mut().ui.views[0];
+        v.zoom = 8.0;
+        v.center = [20.0, 15.0];
+        h.run_steps(2);
+        press_at(&mut h, 10.3, 10.3, Modifiers::NONE);
+        move_to(&mut h, 20.6, 15.4);
+        let app = h.state();
+        let live = app.drag.as_ref().and_then(|d| crate::canvas::marquee_preview_px(&app.ui.tool_options, d)).unwrap();
+        assert_eq!(live, [10.0, 10.0, 21.0, 16.0], "{tool:?}: whole pixels while dragging");
+        release_at(&mut h, 20.6, 15.4, Modifiers::NONE);
+        assert_eq!(selection(&h), Rect::new(10, 10, 21, 16), "{tool:?}: the commit is what was shown");
+    }
 }
 
 #[test]

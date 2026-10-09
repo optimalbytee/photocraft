@@ -450,6 +450,14 @@ impl Ex {
                     if w.is_empty() {
                         self.warnings.push(format!("layer \"{}\": {} adjustment is not yet written to PSD", l.name, a.label()));
                     }
+                    // Photoshop's `clrL` descriptor has no interpolation setting, so the
+                    // reopened layer renders trilinear.
+                    if matches!(a, photocraft_doc::Adjustment::ColorLookup { tetrahedral: true, .. }) {
+                        self.warnings.push(format!(
+                            "layer \"{}\": Color Lookup tetrahedral interpolation is saved as trilinear (PSD has no interpolation setting)",
+                            l.name
+                        ));
+                    }
                     regenerated.extend(w);
                 }
             }
@@ -1263,12 +1271,14 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     if let Some(groups) = link_group_resource(&doc.layers) {
         resources.push(ImageResource::new(ids::LAYER_GROUP_INFO, groups));
     }
+    // The pixels are saved as they are shown: never let a reader rotate them again. The XMP and
+    // EXIF resolution follow the ResolutionInfo resource, so no copy contradicts it (#1691).
+    let ppi = Some((doc.resolution_dpi, doc.resolution_dpi)).filter(|d| d.0 > 0.0);
     if let Some(x) = &doc.metadata.xmp {
-        // The pixels are saved as they are shown: never let a reader rotate them again.
-        resources.push(ImageResource::new(ids::XMP, photocraft_codecs::upright_xmp(x).as_bytes().to_vec()));
+        resources.push(ImageResource::new(ids::XMP, photocraft_codecs::export_xmp(x, ppi).as_bytes().to_vec()));
     }
     if let Some(e) = &doc.metadata.exif {
-        resources.push(ImageResource::new(ids::EXIF, photocraft_codecs::upright_exif(e).into_owned()));
+        resources.push(ImageResource::new(ids::EXIF, photocraft_codecs::export_exif(e, ppi).into_owned()));
     }
     let mut global_blocks = Vec::new();
     for (sig, key, data) in &ex.smart.finish(crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc))) {
