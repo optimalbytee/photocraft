@@ -104,6 +104,16 @@ These implementations remove the tools from the missing list; they do not establ
 behavioural parity. The historical estimates and corpus measurements in this assessment are
 unchanged; current measured floors remain in the scorecard.
 
+2026-10-09: Shape Blur keeps its existing binary kernels and exact finite output while
+reusing the kernel across tiles, fusing premultiplication into prefix construction and
+accumulating contiguous rows. On Windows x86_64 / Ryzen 7 9700X, 81 release-build 24 MP
+cases (nine shapes, radii 5/25/100, 8/16/32-bit) improved 1.33–2.84×. Circle/r1000 improved
+154.3 → 50.4 s (peak working set 6.16 → 4.73 GiB), and a 36 MP float Ring/r100 improved
+5.62 → 2.02 s. The maximum finite differential error was 0. This establishes an improvement
+over our previous implementation, not new Photoshop behavioral parity or timings on ARM,
+macOS, Linux or wasm. Method, variation, raw samples and limits:
+[`shape-blur-performance.md`](shape-blur-performance.md).
+
 2026-10-07: Camera Raw PSD mapping covers relative custom white balance, Light/Presence,
 parametric and four point curves, HSL, Color Grading, sharpening/noise detail, grain and numeric
 post-crop vignette controls. Two revisions of one supplied Photoshop ACR 18.4 PSD preserve their
