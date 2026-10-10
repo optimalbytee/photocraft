@@ -71,6 +71,16 @@ i7-9750H, 12 workers, 24 MP RGBA8, Good quality, amount 1: Spin 66.10 → 16.43 
 (4.02×), Zoom 19.19 → 5.35 s (3.59×), one paired run each, exact output equality.
 These are local measurements at amount 1; see [method and limits](radial-blur-performance.md).
 
+2026-10-10: Iris Blur pin preparation, saturated-distance evaluation and trailing
+Gaussian-level halo trimming measure 1.18–1.76× faster across eight local 24 MP
+RGB U8/U16/F32 cases (Ryzen 7 9700X, Windows, eight workers). Default blur 15:
+626.8 → 426.9 ms; two pins: 1789.9 → 1016.2 ms. The default 1500×1000 filtered
+proxy for 24 MP, document blur 15/80: 28.7/51.8 → 24.9/42.6 ms. At 36 MP,
+two pins: 2595.8 → 1822.8 ms; small/medium U8 gains are inconclusive.
+Differential tests preserve exact finite pixel bits.
+These are computation timings, not GUI frame latency or new Photoshop parity;
+see [measurements, upstream SIMD findings and limits](iris-blur-performance.md).
+
 2026-10-10: native selection distance transforms measured 7.59–10.57x faster on six
 24–36 MP synthetic masks on an AWS c7i.4xlarge (16 workers, three paired release runs).
 The transform also corrects f32 envelope errors past coordinate 4096, including nonzero
