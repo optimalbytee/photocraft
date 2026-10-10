@@ -1,5 +1,11 @@
 # Control protocol
 
+Shape stroke defaults are drivable with `ui.set {shapeStroke: {width, align, cap, join,
+miterLimit, dashes, dashOffset, opacity}}`; partial fields merge, null disables the stroke.
+Values use the existing `shape.edit` names and units. Colour uses `tools.setColors`.
+`ui.inspect` exposes `toolOptions.shape_stroke`, `stroke_width`, and `strokeEditor`.
+See [Shape stroke options](shape-strokes.md) for limits, preview and persistence behavior.
+
 The desktop app listens on `127.0.0.1:<port>` (loopback only). Start it with a token file so the credential is not exposed in the process command line:
 
 ```sh

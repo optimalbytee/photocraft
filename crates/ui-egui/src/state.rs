@@ -497,6 +497,8 @@ pub struct ToolOptions {
     /// radius, polygon sides, line weight.
     pub shape_fill: bool,
     pub stroke_width: f32,
+    #[serde(default)]
+    pub shape_stroke: crate::shape_stroke_ui::StrokeOptions,
     pub corner_radius: f32,
     pub polygon_sides: u32,
     pub line_weight: f32,
@@ -648,6 +650,7 @@ impl Default for ToolOptions {
             vector_mode: "path".into(),
             shape_fill: true,
             stroke_width: 0.0,
+            shape_stroke: Default::default(),
             corner_radius: 0.0,
             polygon_sides: 5,
             line_weight: 3.0,
@@ -886,6 +889,8 @@ pub struct UiState {
     /// Pen path under construction.
     #[serde(default)]
     pub pen: Option<crate::vector_ui::PenPath>,
+    #[serde(default)]
+    pub stroke_editor: Option<crate::shape_stroke_ui::StrokeEditor>,
     /// Direct Selection tool: selected anchors and the drag in progress (#790).
     #[serde(default)]
     pub direct_selection: crate::direct_select::DirectSelection,
@@ -1025,6 +1030,7 @@ impl Default for UiState {
             shell: Default::default(),
             layer_filter: Vec::new(),
             pen: None,
+            stroke_editor: None,
             direct_selection: Default::default(),
             selected_path: None,
             panels: Panels::default(),

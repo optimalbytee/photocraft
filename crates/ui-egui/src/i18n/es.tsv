@@ -2424,3 +2424,24 @@ fontWeight	Italic	Cursiva
 	XOR	XOR
 	Color Burn (Paint.NET)	Sobreexponer color (Paint.NET)
 	Color Dodge (Paint.NET)	Aclarar color (Paint.NET)
+	Stroke Options	Opciones de trazo
+	Solid	Continuo
+	Dashed	Discontinuo
+	Dotted	Punteado
+	Alignment	Alineación
+	Caps	Extremos
+	Butt / Flat	Plano
+	Corners	Esquinas
+	Miter	Inglete
+	Round	Redondo
+	Bevel	Bisel
+	Miter limit	Límite de inglete
+	Dashed line	Línea discontinua
+	Dash	Guion
+	Gap	Espacio
+	Dash / gap lengths × stroke width	Longitudes de guion / espacio × anchura del trazo
+	Add pair	Añadir par
+	Remove pair	Quitar par
+	Dash offset	Desplazamiento de guiones
+	Open paths use centered strokes	Los trazados abiertos usan trazos centrados
+	Use finite lengths and a positive pattern total	Usa longitudes finitas y un total de patrón positivo

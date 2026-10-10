@@ -2333,3 +2333,24 @@ fontWeight	Italic	斜體
 	XOR	XOR
 	Color Burn (Paint.NET)	加深顏色 (Paint.NET)
 	Color Dodge (Paint.NET)	加亮顏色 (Paint.NET)
+	Stroke Options	筆畫選項
+	Solid	實線
+	Dashed	虛線
+	Dotted	點線
+	Alignment	對齊
+	Caps	端點
+	Butt / Flat	平頭
+	Corners	轉角
+	Miter	斜接
+	Round	圓角
+	Bevel	斜角
+	Miter limit	斜接限制
+	Dashed line	虛線
+	Dash	線段
+	Gap	間隔
+	Dash / gap lengths × stroke width	線段 / 間隔長度 × 筆畫寬度
+	Add pair	新增一對
+	Remove pair	移除一對
+	Dash offset	虛線偏移
+	Open paths use centered strokes	開放路徑使用置中筆畫
+	Use finite lengths and a positive pattern total	請使用有限長度和正數圖樣總長度
