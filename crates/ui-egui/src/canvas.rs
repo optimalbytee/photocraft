@@ -659,6 +659,15 @@ impl ViewXform {
     }
 }
 
+/// Document point under a screen position on the main canvas, or `None` when the position is
+/// outside it: the rulers are not part of the canvas, so drops on the ruler strip are not
+/// canvas drops. Preset-panel drops and drag-and-drop placement share this so both land exactly
+/// where the canvas draws.
+pub fn doc_point_at(app: &PhotocraftApp, pos: Pos2) -> Option<[f64; 2]> {
+    let xf = ViewXform::active(app)?;
+    xf.rect.contains(pos).then(|| xf.to_doc(pos))
+}
+
 /// Fit the document into `area` (egui points) for a display with `ppp` physical pixels per
 /// point; `View::zoom` is stored in physical pixels per document pixel.
 pub fn fit_view(view: &mut View, doc: &Document, area: Vec2, ppp: f32) {
@@ -752,6 +761,12 @@ pub(crate) const GPU_OUTPUT: u32 = u32::MAX;
 
 /// The document to render: the committed one, or a clone with the live adjustment preview applied.
 pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Document>, u64) {
+    if let Some(shown) = crate::type_panels_ui::color_picker::display_doc(app, idx) {
+        return shown;
+    }
+    if let Some(shown) = crate::solid_fill_ui::display_doc(app, idx) {
+        return shown;
+    }
     if let Some(shown) = crate::type_transform::display_doc(app, idx) {
         return shown;
     }
@@ -779,6 +794,7 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
     if let Some(shown) = crate::blend_preview::display_doc(app, idx) {
         return shown;
     }
+    crate::transform_tool::follow_edits(app);
     let st = &app.session.documents()[idx];
     if let Some(l) = live_stroke(app, idx) {
         return (l.stroke.doc().clone(), l.display_key());
@@ -800,9 +816,10 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
     if let Some(d) = style.filter(|_| preview_on)
         && app.session.active_index() == Some(idx)
     {
-        let key = (crate::layer_style::preview_hash(&d.fields) ^ st.revision.wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1 << 63;
+        let fields = crate::layer_style::color_picker::preview_fields(app, d.id, &d.fields);
+        let key = (crate::layer_style::preview_hash(&fields) ^ st.revision.wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1 << 63;
         if app.style_preview.as_ref().map(|p| p.0) != Some(key) {
-            let shown = crate::layer_style::preview_document(&st.doc, &app.session.patterns, &d.fields).map(std::sync::Arc::new);
+            let shown = crate::layer_style::preview_document(&st.doc, &app.session.patterns, &fields).map(std::sync::Arc::new);
             if let Err(error) = &shown {
                 log::warn!("Layer Style preview: {error}");
             }
@@ -961,7 +978,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
 /// What changed since a canvas cache showed (`revision`, `preview key`) `seen`, when only a
 /// rectangle did: the last edit's damage, or the live stroke's dabs since then. Cached keys have
 /// the colour display's key folded in (`^ display_key`); `now`'s is still raw.
-fn damage_since(app: &PhotocraftApp, idx: usize, seen: (u64, u64), now: (u64, u64), display_key: u64, last_damage: Option<DRect>) -> Option<DRect> {
+pub(crate) fn damage_since(app: &PhotocraftApp, idx: usize, seen: (u64, u64), now: (u64, u64), display_key: u64, last_damage: Option<DRect>) -> Option<DRect> {
     if seen.1 == now.1 ^ display_key && seen.0 + 1 == now.0 {
         return last_damage;
     }
@@ -1010,6 +1027,11 @@ fn damage_since(app: &PhotocraftApp, idx: usize, seen: (u64, u64), now: (u64, u6
 /// refreshes only that area instead of everything.
 pub(crate) fn shown_as_document(app: &mut PhotocraftApp, doc: photocraft_doc::DocId, was_preview: impl Fn(u64) -> bool) {
     let Some(d) = app.session.documents().iter().find(|st| st.doc.id == doc).map(|st| st.doc.clone()) else { return };
+    if let Some(c) = app.channel_views.get_mut(&doc.0)
+        && was_preview(c.preview_key)
+    {
+        c.preview_key = 0;
+    }
     // Every display's cache of the document: the GPU state folds in the texture key, CPU
     // textures their display's key.
     let outputs: Vec<u32> = app.canvases.keys().filter(|k| k.0 == doc).map(|k| k.1).collect();
@@ -2442,7 +2464,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // Pen pressure/tilt for this frame's tool events (mouse = 1.0), unless Preferences › Tools ›
     // Use Tablet Pressure is off; the pen's eraser end selects the Eraser.
     app.stylus.use_pressure = app.session.prefs().tools.use_tablet_pressure;
-    app.stylus.update(&ui.input(|i| i.events.clone()));
+    app.stylus.update_for_frame(ui.ctx().cumulative_frame_nr(), &ui.input(|i| i.events.clone()));
     crate::stylus::Stylus::sync_eraser_tool(app);
     // A Magnetic Lasso border left behind by a tool or document switch is dropped.
     crate::magnetic_lasso_ui::frame(app);
@@ -2450,6 +2472,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // drawn; otherwise Space is the Hand and ⌘Space / ⌘⌥Space the Zoom tool while held.
     let reposition = crate::hold_keys::reposition_held(app, &ctx);
     crate::crop_ui::set_space(app, reposition);
+    // ⌘ (Ctrl) held: a temporary Straighten with the Crop tool.
+    crate::crop_straighten::set_held(app, !ctx.text_edit_focused() && ui.input(|i| i.modifiers.command));
     // A tab switched this frame drops the other document's pending crop (#1918).
     crate::crop_ui::cancel_stale(app);
     crate::crop_ui::ensure_frame(app);
@@ -2683,9 +2707,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let n = positions.len();
             for (k, p) in positions.into_iter().enumerate() {
                 app.stylus.clock_ms = spread_ms(base, now_ms, k, n);
+                // This move's share of the pen samples the frame brought (pressure, tilt, rotation).
+                app.stylus.select(k, n);
                 let d = xf.to_doc(p);
                 tool_event(app, ToolEvent::Move { x: d[0], y: d[1], pressure: app.stylus.pressure() }, mods);
             }
+            app.stylus.clear_selection();
             app.stylus.clock_ms = now_ms;
             // A held pen keeps the clock running for airbrush build-up and smoothing catch-up.
             if app.drag.is_some() && stroke_wants_time(app) {
@@ -2792,8 +2819,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         crate::layer_pick_ui::show(app, &ctx);
         crate::canvas_tool_menu::show(app, &ctx);
         crate::snap_ui::draw(app, &painter, &xf);
-        // The canvas edge isn't outlined while the pixels past it show (Photoshop's crop preview).
-        if border == photocraft_engine::prefs::CanvasBorder::Line && !beyond {
+        // The canvas edge isn't outlined while the pixels past it show (Photoshop's crop preview),
+        // nor while the Crop tool hides everything outside its box (Show Cropped Area off).
+        if border == photocraft_engine::prefs::CanvasBorder::Line && !beyond && !crate::crop_shield::hides_outside(app) {
             painter.rect_stroke(img_rect, 0.0, Stroke::new(1.0, Color32::from_gray(20)), egui::StrokeKind::Outside);
         }
         crate::type_tool::draw_overlay(app, &painter, &xf);
@@ -2856,30 +2884,35 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     // full size), precise crosshair, or the standard pointer.
                     use photocraft_engine::prefs::PaintingCursor;
                     let cur = app.session.prefs().cursors.clone();
-                    let painting = app.drag.is_some();
-                    let brush = &app.session.tools.brush;
-                    let full = (brush.size / 2.0 * xf.zoom).max(1.0);
-                    let r = if cur.painting == PaintingCursor::NormalTip { (full * (0.5 + 0.5 * brush.hardness.clamp(0.0, 1.0))).max(1.0) } else { full };
-                    match cur.painting {
-                        PaintingCursor::Standard => egui::CursorIcon::Default,
-                        PaintingCursor::Precise => crate::tool_cursor::crosshair(&painter, p, 6.0, 0.0),
-                        _ if painting && cur.show_only_crosshair_while_painting => crate::tool_cursor::crosshair(&painter, p, 5.0, 0.0),
-                        // The Pencil: the square of whole pixels its dab fills, on the pixel grid.
-                        _ if tool == Tool::Pencil => {
-                            let ppp = painter.ctx().pixels_per_point();
-                            let sq = pencil_cursor_rect(&xf, xf.to_doc(p), brush.size, ppp);
-                            let px = 1.0 / ppp;
-                            painter.rect_stroke(sq, 0.0, Stroke::new(px, Color32::from_black_alpha(160)), egui::StrokeKind::Outside);
-                            painter.rect_stroke(sq, 0.0, Stroke::new(px, Color32::from_white_alpha(230)), egui::StrokeKind::Inside);
-                            // Too small to see where it is: the hotspot as well.
-                            if cur.show_crosshair_in_brush_tip || sq.width() < 6.0 {
-                                crate::tool_cursor::crosshair(&painter, p, 4.0, 0.0);
+                    // ⇪ forces the precise crosshair, whatever the cursor preference (#1758).
+                    if app.caps_lock {
+                        crate::tool_cursor::crosshair(&painter, p, 6.0, 0.0)
+                    } else {
+                        let painting = app.drag.is_some();
+                        let brush = &app.session.tools.brush;
+                        let full = (brush.size / 2.0 * xf.zoom).max(1.0);
+                        let r = if cur.painting == PaintingCursor::NormalTip { (full * (0.5 + 0.5 * brush.hardness.clamp(0.0, 1.0))).max(1.0) } else { full };
+                        match cur.painting {
+                            PaintingCursor::Standard => egui::CursorIcon::Default,
+                            PaintingCursor::Precise => crate::tool_cursor::crosshair(&painter, p, 6.0, 0.0),
+                            _ if painting && cur.show_only_crosshair_while_painting => crate::tool_cursor::crosshair(&painter, p, 5.0, 0.0),
+                            // The Pencil: the square of whole pixels its dab fills, on the pixel grid.
+                            _ if tool == Tool::Pencil => {
+                                let ppp = painter.ctx().pixels_per_point();
+                                let sq = pencil_cursor_rect(&xf, xf.to_doc(p), brush.size, ppp);
+                                let px = 1.0 / ppp;
+                                painter.rect_stroke(sq, 0.0, Stroke::new(px, Color32::from_black_alpha(160)), egui::StrokeKind::Outside);
+                                painter.rect_stroke(sq, 0.0, Stroke::new(px, Color32::from_white_alpha(230)), egui::StrokeKind::Inside);
+                                // Too small to see where it is: the hotspot as well.
+                                if cur.show_crosshair_in_brush_tip || sq.width() < 6.0 {
+                                    crate::tool_cursor::crosshair(&painter, p, 4.0, 0.0);
+                                }
+                                egui::CursorIcon::None
                             }
-                            egui::CursorIcon::None
-                        }
-                        _ => {
-                            let centre = brush_tip_centre(tool, alt || app.ui.shell.sticky_alt, cur.show_crosshair_in_brush_tip, r);
-                            crate::tool_cursor::circle(&painter, p, r, centre)
+                            _ => {
+                                let centre = brush_tip_centre(tool, alt || app.ui.shell.sticky_alt, cur.show_crosshair_in_brush_tip, r);
+                                crate::tool_cursor::circle(&painter, p, r, centre)
+                            }
                         }
                     }
                 }
@@ -3059,18 +3092,20 @@ fn marching_ants(painter: &egui::Painter, r: Rect, time: f64) {
     }
 }
 
-/// Photoshop crop overlay: dimmed outside, bright frame, the composition `guides` (unit-square
-/// polylines, `crop_overlay::guides`), corner and edge handles.
-fn crop_overlay(painter: &egui::Painter, r: Rect, guides: &[crate::crop_overlay::Polyline]) {
+/// Photoshop crop overlay: the `shield` outside (`crop_shield::fill`; none when disabled), bright
+/// frame, the composition `guides` (unit-square polylines, `crop_overlay::guides`), corner and
+/// edge handles.
+fn crop_overlay(painter: &egui::Painter, r: Rect, shield: Option<Color32>, guides: &[crate::crop_overlay::Polyline]) {
     let clip = painter.clip_rect();
-    let dim = Color32::from_black_alpha(130);
-    for band in [
-        Rect::from_min_max(clip.min, egui::pos2(clip.max.x, r.min.y)),
-        Rect::from_min_max(egui::pos2(clip.min.x, r.max.y), clip.max),
-        Rect::from_min_max(egui::pos2(clip.min.x, r.min.y), egui::pos2(r.min.x, r.max.y)),
-        Rect::from_min_max(egui::pos2(r.max.x, r.min.y), egui::pos2(clip.max.x, r.max.y)),
-    ] {
-        painter.rect_filled(band, 0.0, dim);
+    if let Some(dim) = shield {
+        for band in [
+            Rect::from_min_max(clip.min, egui::pos2(clip.max.x, r.min.y)),
+            Rect::from_min_max(egui::pos2(clip.min.x, r.max.y), clip.max),
+            Rect::from_min_max(egui::pos2(clip.min.x, r.min.y), egui::pos2(r.min.x, r.max.y)),
+            Rect::from_min_max(egui::pos2(r.max.x, r.min.y), egui::pos2(clip.max.x, r.max.y)),
+        ] {
+            painter.rect_filled(band, 0.0, dim);
+        }
     }
     painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Middle);
     draw_crop_guides(painter, guides, |a, b| r.min + r.size() * vec2(a, b));
@@ -3090,7 +3125,7 @@ fn crop_overlay(painter: &egui::Painter, r: Rect, guides: &[crate::crop_overlay:
 
 /// [`crop_overlay`] for a turned frame (or a rotated view): `q` is the frame's top-left, top-right,
 /// bottom-right and bottom-left corner on screen, a parallelogram.
-fn crop_overlay_turned(painter: &egui::Painter, q: [Pos2; 4], guides: &[crate::crop_overlay::Polyline]) {
+fn crop_overlay_turned(painter: &egui::Painter, q: [Pos2; 4], shield: Option<Color32>, guides: &[crate::crop_overlay::Polyline]) {
     let (u, v) = (q[1] - q[0], q[3] - q[0]);
     let (lu, lv) = (u.length(), v.length());
     if !(lu.is_finite() && lv.is_finite()) || lu < 1e-3 || lv < 1e-3 {
@@ -3102,17 +3137,18 @@ fn crop_overlay_turned(painter: &egui::Painter, q: [Pos2; 4], guides: &[crate::c
     let reach = clip.size().length() + (clip.center() - at(0.5, 0.5)).length();
     let (eu, ev) = (reach / lu, reach / lv);
     let outer = [at(-eu, -ev), at(1.0 + eu, -ev), at(1.0 + eu, 1.0 + ev), at(-eu, 1.0 + ev)];
-    let dim = Color32::from_black_alpha(130);
-    let mut mesh = egui::Mesh::default();
-    for p in q.iter().chain(outer.iter()) {
-        mesh.colored_vertex(*p, dim);
+    if let Some(dim) = shield {
+        let mut mesh = egui::Mesh::default();
+        for p in q.iter().chain(outer.iter()) {
+            mesh.colored_vertex(*p, dim);
+        }
+        for i in 0..4u32 {
+            let j = (i + 1) % 4;
+            mesh.add_triangle(i, j, 4 + j);
+            mesh.add_triangle(i, 4 + j, 4 + i);
+        }
+        painter.add(egui::Shape::mesh(mesh));
     }
-    for i in 0..4u32 {
-        let j = (i + 1) % 4;
-        mesh.add_triangle(i, j, 4 + j);
-        mesh.add_triangle(i, 4 + j, 4 + i);
-    }
-    painter.add(egui::Shape::mesh(mesh));
     painter.add(egui::Shape::closed_line(q.to_vec(), Stroke::new(1.0, Color32::WHITE)));
     draw_crop_guides(painter, guides, at);
     let h = Stroke::new(3.0, Color32::WHITE);
@@ -3283,14 +3319,16 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
         // Just the outline and its rubber band: the vertices aren't handles to grab.
         crate::tool_feedback::draw_ants(painter, &pts, false);
     }
+    crate::crop_straighten::draw(app, painter, |p| xf.to_screen(p[0] as f32, p[1] as f32), hover);
     if let Some(c) = app.ui.crop_rect {
         let deg = crate::crop_ui::angle(app);
+        let shield = crate::crop_shield::current(app, painter.ctx());
         if deg == 0.0 && xf.rotation == 0.0 {
             let r = Rect::from_two_pos(xf.to_screen(c[0] as f32, c[1] as f32), xf.to_screen(c[2] as f32, c[3] as f32));
-            crop_overlay(painter, r, &crate::crop_overlay::current_guides(app, r.width(), r.height()));
+            crop_overlay(painter, r, shield, &crate::crop_overlay::current_guides(app, r.width(), r.height()));
         } else {
             let q = crate::crop_ui::corners(c, deg).map(|p| xf.to_screen(p[0] as f32, p[1] as f32));
-            crop_overlay_turned(painter, q, &crate::crop_overlay::current_guides(app, q[0].distance(q[1]), q[0].distance(q[3])));
+            crop_overlay_turned(painter, q, shield, &crate::crop_overlay::current_guides(app, q[0].distance(q[1]), q[0].distance(q[3])));
         }
         // The frame's angle beside the pointer while it turns (#1792).
         if let (Some(a), Some(h)) = (crate::crop_ui::turning(app), hover) {
@@ -3947,6 +3985,10 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     }
     match d.tool {
         Tool::ObjectSelection => crate::retouch_ui::finish_object_selection(app, d.start, [end[0], end[1]], d.modifiers),
+        // Photoshop: a click without dragging opens Create Rectangle / Ellipse / … instead.
+        t if crate::vector_ui::is_shape_tool(t)
+            && crate::shape_dialog::is_click(d.start, &d.points, app.current_zoom())
+            && crate::shape_dialog::open(app, t, d.start).is_some() => {}
         t if crate::vector_ui::is_shape_tool(t) => crate::vector_ui::finish_shape(app, t, d.start, [end[0], end[1]], d.live),
         Tool::PathSelection => crate::vector_ui::path_selection_finish(app, d.start, [end[0], end[1]]),
         Tool::Type | Tool::VerticalType => crate::type_tool::pointer_up(app, d.start, [end[0], end[1]]),
@@ -4762,6 +4804,136 @@ mod tests {
         // Control+Alt stays the brush-resize gesture, never a sample.
         assert!(!alt_samples(Tool::Brush, egui::Modifiers { alt: true, ctrl: true, ..Default::default() }));
         assert!(!alt_samples(Tool::Eraser, alt), "⌥ with the Eraser is not the Eyedropper");
+    }
+
+    /// #2078: the opaque mask-view texture must show the live stroke, not cover it with
+    /// the committed mask until the mouse is released.
+    #[test]
+    fn mask_view_uploads_each_live_stroke_before_release() {
+        for depth in [8, 16, 32] {
+            for mode in ["gray", "overlay"] {
+                for (width, factor) in [(120u32, 1u32), (513, 3)] {
+                    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+                    app.run("file.new", json!({"width": width, "height": 60, "depth": depth})).unwrap();
+                    app.run("layer.layerMask.revealAll", json!({})).unwrap();
+                    app.run("view.layerMask", json!({"mode": mode})).unwrap();
+                    app.run("tools.setColors", json!({"foreground": [0.0, 0.0, 0.0, 1.0]})).unwrap();
+                    app.run("tools.setBrush", json!({"brush": {"size": 12, "hardness": 1.0, "smoothing": {"amount": 0.0}}})).unwrap();
+                    app.ui.tool = Tool::Brush;
+                    let ctx = egui::Context::default();
+                    ctx.input_mut(|i| i.max_texture_side = 256);
+                    let tex = crate::channel_view::ensure(&mut app, &ctx, 0).unwrap();
+                    ctx.tex_manager().write().take_delta().clear();
+                    let revision = app.session.documents()[0].revision;
+                    let steps = app.session.documents()[0].history.past_len();
+                    let layer = app.session.documents()[0].active_layer.unwrap();
+                    let original = app.session.documents()[0].doc.layer(layer).unwrap().clone();
+                    tool_event(&mut app, ToolEvent::Down { x: 10.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+                    for x in [30.0, 50.0, 70.0] {
+                        tool_event(&mut app, ToolEvent::Move { x, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+                        let shown = display_doc(&mut app, 0).0;
+                        assert!(shown.layer(layer).unwrap().mask.as_ref().unwrap().value(x as i32, 30) < 0.1);
+                        assert_eq!(crate::channel_view::ensure(&mut app, &ctx, 0), Some(tex));
+                        let mut delta = ctx.tex_manager().write().take_delta();
+                        let uploads = delta.set.get(&tex).unwrap_or_else(|| panic!("{depth}-bit {mode}: live mask texture must upload before release at {x}"));
+                        assert_eq!(uploads.len(), 1);
+                        let upload = &uploads[0];
+                        let pos = upload.pos.expect("only the damaged region is uploaded");
+                        let egui::ImageData::Color(image) = &upload.image;
+                        assert!(image.pixels.len() < (width.div_ceil(factor) * 60u32.div_ceil(factor)) as usize, "the whole mask is not uploaded");
+                        let f = factor as i32;
+                        let r = DRect::new(pos[0] as i32 * f, pos[1] as i32 * f, (pos[0] + image.size[0]) as i32 * f, (pos[1] + image.size[1]) as i32 * f)
+                            .intersect(&shown.bounds());
+                        let expected = crate::channel_view::render(&shown, &app.session.documents()[0].channel_view, r, factor, false).unwrap();
+                        assert_eq!(image.pixels, expected, "uploaded mask values match the live stroke");
+                        delta.clear();
+                        assert_eq!(app.session.documents()[0].revision, revision);
+                        assert_eq!(app.session.documents()[0].history.past_len(), steps);
+                        assert_eq!(app.session.documents()[0].doc.layer(layer).unwrap(), &original);
+                        crate::channel_view::ensure(&mut app, &ctx, 0);
+                        assert!(ctx.tex_manager().write().take_delta().set.is_empty(), "idle frame does not upload");
+                    }
+                    tool_event(&mut app, ToolEvent::Up { x: 70.0, y: 30.0 }, egui::Modifiers::NONE);
+                    let st = &app.session.documents()[0];
+                    assert_eq!(st.history.past_len(), steps + 1);
+                    assert!(st.doc.layer(layer).unwrap().mask.as_ref().unwrap().value(50, 30) < 0.1);
+                    assert_eq!(st.doc.layer(layer).unwrap().content, original.content);
+                    crate::channel_view::ensure(&mut app, &ctx, 0);
+                    let mut delta = ctx.tex_manager().write().take_delta();
+                    assert!(delta.set.get(&tex).unwrap()[0].pos.is_some(), "commit keeps its partial upload");
+                    delta.clear();
+                    app.session.undo();
+                    assert_eq!(app.session.documents()[0].doc.layer(layer).unwrap(), &original);
+                    crate::channel_view::ensure(&mut app, &ctx, 0);
+                    let mut delta = ctx.tex_manager().write().take_delta();
+                    let egui::ImageData::Color(image) = &delta.set.get(&tex).unwrap()[0].image;
+                    let st = &app.session.documents()[0];
+                    assert_eq!(
+                        image.pixels,
+                        crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), factor, false).unwrap(),
+                        "undo restores the shown mask"
+                    );
+                    delta.clear();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn channel_views_show_live_targets_and_discarded_strokes() {
+        for target in ["quickMask", "alpha", "red"] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width": 120, "height": 60})).unwrap();
+            match target {
+                "quickMask" => {
+                    app.run("select.rect", json!({"x": 0, "y": 0, "width": 120, "height": 60})).unwrap();
+                    app.run("select.editInQuickMaskMode", json!({})).unwrap();
+                }
+                "alpha" => {
+                    app.run("channel.new", json!({"fill": "white"})).unwrap();
+                }
+                _ => {
+                    app.run("channel.target", json!({"channel": "red"})).unwrap();
+                }
+            }
+            app.run("tools.setColors", json!({"foreground": [0.0, 0.0, 0.0, 1.0]})).unwrap();
+            app.run("tools.setBrush", json!({"brush": {"size": 12, "hardness": 1.0, "smoothing": {"amount": 0.0}}})).unwrap();
+            app.ui.tool = Tool::Brush;
+            let ctx = egui::Context::default();
+            let tex = crate::channel_view::ensure(&mut app, &ctx, 0).unwrap();
+            ctx.tex_manager().write().take_delta().clear();
+            let original = app.session.documents()[0].doc.clone();
+            let steps = app.session.documents()[0].history.past_len();
+            tool_event(&mut app, ToolEvent::Down { x: 10.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+            tool_event(&mut app, ToolEvent::Move { x: 50.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+            let shown = display_doc(&mut app, 0).0;
+            crate::channel_view::ensure(&mut app, &ctx, 0);
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let upload = &delta.set.get(&tex).expect("live channel upload")[0];
+            let pos = upload.pos.expect("partial channel upload");
+            let egui::ImageData::Color(image) = &upload.image;
+            let r = DRect::new(pos[0] as i32, pos[1] as i32, (pos[0] + image.size[0]) as i32, (pos[1] + image.size[1]) as i32);
+            assert_eq!(image.pixels, crate::channel_view::render(&shown, &app.session.documents()[0].channel_view, r, 1, false).unwrap(), "{target}");
+            assert_ne!(
+                image.pixels,
+                crate::channel_view::render(&original, &app.session.documents()[0].channel_view, r, 1, false).unwrap(),
+                "target was painted"
+            );
+            delta.clear();
+            assert_eq!(app.session.documents()[0].history.past_len(), steps);
+            assert!(std::sync::Arc::ptr_eq(&original, &app.session.documents()[0].doc));
+            // Dropping a preview without committing must restore its texture, even though the
+            // document revision did not change. There is no committed damage rectangle to use.
+            app.drag = None;
+            app.live_stroke = None;
+            crate::channel_view::ensure(&mut app, &ctx, 0);
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let upload = &delta.set.get(&tex).unwrap()[0];
+            assert!(upload.pos.is_none(), "discarding a preview refreshes the view");
+            let egui::ImageData::Color(image) = &upload.image;
+            assert_eq!(image.pixels, crate::channel_view::render(&original, &app.session.documents()[0].channel_view, original.bounds(), 1, false).unwrap());
+            delta.clear();
+        }
     }
 
     #[test]
